@@ -1,0 +1,41 @@
+/* ClientBookings.css */
+
+.bookings-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.new-booking-btn {
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+}
+
+.booking-route-details {
+  gap: 16px;
+}
+
+.booking-location-text {
+  font-weight: 500;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.booking-trip-details {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

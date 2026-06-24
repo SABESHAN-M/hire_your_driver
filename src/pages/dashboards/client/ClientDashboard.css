@@ -1,0 +1,5 @@
+/* ClientDashboard.css */
+
+.empty-activity-text {
+  color: var(--text-muted);
+}

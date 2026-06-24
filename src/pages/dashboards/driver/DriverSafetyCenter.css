@@ -1,0 +1,316 @@
+/* SafetyCenter.css */
+
+.safety-btn-primary {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: var(--accent-gold);
+  color: #000;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.safety-btn-primary:hover {
+  background: var(--accent-gold-hover);
+  /* transform: translateY(-2px); removed */
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.4);
+}
+
+.safety-btn-outline {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: transparent;
+  color: var(--accent-gold);
+  border: 2px solid var(--accent-gold);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.safety-btn-outline:hover {
+  background: var(--accent-gold);
+  color: #000;
+  /* transform: translateY(-2px); removed */
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.safety-btn-secondary {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: var(--bg-main);
+  color: var(--text-main);
+  border: 2px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.safety-btn-secondary:hover {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+  /* transform: translateY(-2px); removed */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* Header */
+.safety-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.safety-header-icon {
+  background: rgba(212, 175, 55, 0.1);
+  padding: 16px;
+  border-radius: 50%;
+}
+
+.safety-header h1 {
+  color: var(--text-main);
+  margin: 0;
+  font-size: 32px;
+}
+
+.safety-header p {
+  color: var(--text-muted);
+  margin: 8px 0 0 0;
+}
+
+/* Layout */
+.safety-layout-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.safety-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+/* SOS Hero */
+.sos-hero-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 24px;
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, rgba(212, 175, 55, 0.02) 100%);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.sos-hero-card.sos-active {
+  background: rgba(255, 59, 48, 0.05);
+  border: 2px solid rgba(255, 59, 48, 0.5);
+}
+
+.sos-btn {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FF3B30 0%, #C8150B 100%);
+  border: none;
+  box-shadow: 0 10px 25px rgba(255, 59, 48, 0.4), inset 0 0 10px rgba(255, 255, 255, 0.2);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  margin-bottom: 24px;
+  transform: scale(1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sos-btn.sos-active {
+  background: #FF3B30;
+  box-shadow: 0 0 60px rgba(255, 59, 48, 0.8), inset 0 0 20px rgba(0, 0, 0, 0.3);
+  transform: scale(0.95);
+}
+
+.sos-btn span {
+  font-size: 20px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.sos-hero-card h2 {
+  margin: 0 0 8px 0;
+  color: var(--text-main);
+  font-size: 20px;
+}
+
+.sos-hero-card p {
+  color: var(--text-muted);
+  max-width: 450px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* Feature Cards */
+.safety-feature-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+  border-radius: 16px;
+  padding: 28px;
+}
+
+.feature-card-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.feature-card-icon {
+  background: rgba(212, 175, 55, 0.1);
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.feature-card-header h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 18px;
+}
+
+.feature-card-desc {
+  color: var(--text-muted);
+  margin-bottom: 32px;
+  line-height: 1.6;
+}
+
+/* Contacts */
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  background: var(--bg-main);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.contact-info h4 {
+  margin: 0 0 4px 0;
+  color: var(--text-main);
+  font-size: 15px;
+}
+
+.contact-info p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Modals for Safety Center */
+.safety-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 10, 10, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.safety-modal-content {
+  background: var(--bg-card);
+  width: 100%;
+  max-width: 500px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  padding: 32px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease-out;
+}
+
+.safety-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.safety-modal-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--text-main);
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-modal-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.safety-form-group {
+  margin-bottom: 20px;
+}
+
+.safety-form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-main);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.safety-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 15px;
+  transition: border-color 0.2s ease;
+}
+
+.safety-input:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+}
+
+.safety-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,25 @@
+/* DriverDocuments.css */
+
+.status-verified {
+  color: #34c759 !important;
+}
+
+.status-expiring {
+  color: #ff9500 !important;
+}
+
+.status-pending {
+  color: #007aff !important;
+}
+
+.status-rejected {
+  color: #ff3b30 !important;
+}
+
+@media (max-width: 768px) {
+  .document-group-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
