@@ -1207,10 +1207,10 @@ const isTableAllowed = (tableName) => ALLOWED_DB_TABLES.includes(tableName.toLow
 const getTableSchema = async (tableName) => {
   const [columns] = await db.query(
     `SELECT 
-       column_name AS "Field",
-       data_type AS "Type",
-       is_nullable AS "Null",
-       column_default AS "Default"
+       column_name AS \`Field\`,
+       data_type AS \`Type\`,
+       is_nullable AS \`Null\`,
+       column_default AS \`Default\`
      FROM information_schema.columns
      WHERE table_name = ? AND table_schema = 'public'
      ORDER BY ordinal_position`,
@@ -1223,7 +1223,7 @@ const getTableSchema = async (tableName) => {
 app.get('/api/admin/db/tables', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT table_name AS "table_name" 
+      `SELECT table_name AS \`table_name\` 
        FROM information_schema.tables 
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
     );
