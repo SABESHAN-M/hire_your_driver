@@ -2061,7 +2061,8 @@ const initializeDatabase = async () => {
   try {
     console.log('Initializing extra driver tables...');
     
-    // Increase MySQL packet size limit for large base64 uploads
+    // Increase MySQL packet size limit for large base64 uploads (not needed/supported in PostgreSQL/Supabase)
+    /*
     try {
       await db.query('SET GLOBAL max_allowed_packet = 67108864');
       await db.query('SET SESSION max_allowed_packet = 67108864');
@@ -2069,6 +2070,7 @@ const initializeDatabase = async () => {
     } catch (e) {
       console.warn('Could not set max_allowed_packet:', e.message);
     }
+    */
     
     // Create notifications table if not exists
     await db.query(`
@@ -2085,7 +2087,7 @@ const initializeDatabase = async () => {
 
     // Alter users table to add status column if not exists
     try {
-      await db.query("ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active'");
+      await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'");
       console.log("Added status column to users table");
     } catch (e) {
       // ignore if exists
@@ -2102,7 +2104,7 @@ const initializeDatabase = async () => {
 
     for (const col of alterColumns) {
       try {
-        await db.query(`ALTER TABLE users ADD COLUMN ${col.name} ${col.type}`);
+        await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
         console.log(`Added ${col.name} column to users table`);
       } catch (e) {
         // ignore if exists
@@ -2168,7 +2170,7 @@ const initializeDatabase = async () => {
 
     // Ensure bookings table has the otp column
     try {
-      await db.query('ALTER TABLE bookings ADD COLUMN otp VARCHAR(10) DEFAULT NULL');
+      await db.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS otp VARCHAR(10) DEFAULT NULL');
       console.log('Added otp column to bookings table');
     } catch (e) {
       // Column might already exist, safe to ignore
@@ -2176,7 +2178,7 @@ const initializeDatabase = async () => {
 
     // Ensure bookings table has the started_at column
     try {
-      await db.query('ALTER TABLE bookings ADD COLUMN started_at VARCHAR(100) DEFAULT NULL');
+      await db.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS started_at VARCHAR(100) DEFAULT NULL');
       console.log('Added started_at column to bookings table');
     } catch (e) {
       // Column might already exist, safe to ignore
@@ -2184,7 +2186,7 @@ const initializeDatabase = async () => {
 
     // Ensure bookings table has the promo_code column
     try {
-      await db.query('ALTER TABLE bookings ADD COLUMN promo_code VARCHAR(100) DEFAULT NULL');
+      await db.query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS promo_code VARCHAR(100) DEFAULT NULL');
       console.log('Added promo_code column to bookings table');
     } catch (e) {
       // Column might already exist, safe to ignore
@@ -2232,7 +2234,7 @@ const initializeDatabase = async () => {
 
     for (const col of adminSettingsColumns) {
       try {
-        await db.query(`ALTER TABLE user_settings ADD COLUMN ${col.name} ${col.type}`);
+        await db.query(`ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
         console.log(`Added column ${col.name} to user_settings table`);
       } catch (e) {
         // ignore if exists
@@ -2492,6 +2494,10 @@ app.post('/api/driver/documents/upload', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+export default app;
