@@ -1203,10 +1203,30 @@ const ALLOWED_DB_TABLES = [
 // Helper to check if a table is allowed
 const isTableAllowed = (tableName) => ALLOWED_DB_TABLES.includes(tableName.toLowerCase());
 
+// Helper to get table columns schema in a format compatible with MySQL DESCRIBE
+const getTableSchema = async (tableName) => {
+  const [columns] = await db.query(
+    `SELECT 
+       column_name AS "Field",
+       data_type AS "Type",
+       is_nullable AS "Null",
+       column_default AS "Default"
+     FROM information_schema.columns
+     WHERE table_name = ? AND table_schema = 'public'
+     ORDER BY ordinal_position`,
+    [tableName]
+  );
+  return columns;
+};
+
 // 1. GET list of tables
 app.get('/api/admin/db/tables', async (req, res) => {
   try {
-    const [rows] = await db.query('SHOW TABLES');
+    const [rows] = await db.query(
+      `SELECT table_name AS "table_name" 
+       FROM information_schema.tables 
+       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
+    );
     const tables = [];
     for (const row of rows) {
       const keys = Object.keys(row);
@@ -1214,7 +1234,7 @@ app.get('/api/admin/db/tables', async (req, res) => {
         const tblName = row[keys[0]];
         if (isTableAllowed(tblName)) {
           const [[countRow]] = await db.query(`SELECT COUNT(*) as count FROM \`${tblName}\``);
-          tables.push({ name: tblName, count: countRow.count });
+          tables.push({ name: tblName, count: Number(countRow.count || 0) });
         }
       }
     }
@@ -1232,7 +1252,7 @@ app.get('/api/admin/db/tables/:tableName/schema', async (req, res) => {
     if (!isTableAllowed(tableName)) {
       return res.status(403).json({ error: 'Access denied to system table' });
     }
-    const [columns] = await db.query(`DESCRIBE \`${tableName}\``);
+    const columns = await getTableSchema(tableName);
     res.json(columns);
   } catch (error) {
     console.error(`DB explorer get schema error for ${req.params.tableName}:`, error);
@@ -1255,7 +1275,7 @@ app.get('/api/admin/db/tables/:tableName/rows', async (req, res) => {
     const sortBy = req.query.sortBy || '';
     const sortOrder = req.query.sortOrder || 'ASC';
 
-    const [cols] = await db.query(`DESCRIBE \`${tableName}\``);
+    const cols = await getTableSchema(tableName);
     const textColumns = cols.map(c => c.Field);
 
     let queryStr = `SELECT * FROM \`${tableName}\``;
