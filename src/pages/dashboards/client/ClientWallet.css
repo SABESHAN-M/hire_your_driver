@@ -52,16 +52,16 @@
   }
 }
 
-/* Digital Card (Balance Hero) */
+/* Digital Card (Balance Hero - Light Warm Effect) */
 .digital-wallet-card {
-  background: linear-gradient(135deg, #1e1e1e 0%, #0a0a0a 100%);
+  background: linear-gradient(135deg, #fffcf0 0%, #fff6d6 50%, #fef08a 100%);
   border-radius: 24px;
   padding: 40px;
-  color: #fff;
+  color: #1e293b;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 36px rgba(245, 158, 11, 0.16), 0 4px 12px rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.35);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -71,7 +71,8 @@
 
 .digital-wallet-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 24px 48px rgba(245, 158, 11, 0.24);
+  border-color: rgba(217, 119, 6, 0.5);
 }
 
 .digital-wallet-card::before {
@@ -81,7 +82,7 @@
   right: -20%;
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(212, 175, 55, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.4) 0%, rgba(245, 158, 11, 0.15) 50%, transparent 75%);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -95,7 +96,8 @@
 
 .balance-label {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
+  color: #92400e;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 2px;
   margin-bottom: 8px;
@@ -103,24 +105,25 @@
 
 .balance-amount {
   font-size: 48px;
-  font-weight: 700;
-  color: #fff;
+  font-weight: 800;
+  color: #451a03;
   letter-spacing: -1px;
 }
 
 .reward-badge {
-  background: rgba(212, 175, 55, 0.2);
-  border: 1px solid rgba(212, 175, 55, 0.4);
-  color: var(--accent-gold);
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  color: #78350f;
   padding: 8px 16px;
   border-radius: 30px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 6px;
   backdrop-filter: blur(4px);
   z-index: 1;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.12);
 }
 
 .card-bottom-row {
@@ -128,21 +131,47 @@
   justify-content: space-between;
   align-items: flex-end;
   z-index: 1;
+  color: #000000;
   margin-top: 40px;
 }
 
 .card-number-mock {
   font-size: 18px;
-  letter-spacing: 4px;
-  color: rgba(255, 255, 255, 0.8);
-  font-family: monospace;
+  letter-spacing: 2px;
+  color: #000000;
+  font-weight: 700;
+  font-family: inherit;
 }
 
 .card-brand {
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 800;
   font-style: italic;
-  color: rgba(255, 255, 255, 0.9);
+  color: #000000;
+}
+
+body.dark-theme .digital-wallet-card {
+  background: linear-gradient(135deg, #2a2010 0%, #1c150a 60%, #120e06 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4), 0 0 24px rgba(245, 158, 11, 0.15);
+}
+
+body.dark-theme .balance-label {
+  color: #fef08a;
+}
+
+body.dark-theme .balance-amount {
+  color: #ffffff;
+}
+
+body.dark-theme .reward-badge {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fef08a;
+}
+
+body.dark-theme .card-number-mock,
+body.dark-theme .card-brand {
+  color: #fde047;
 }
 
 /* Action Buttons Grid */
@@ -383,7 +412,24 @@
   color: #4ade80;
 }
 
-/* Modals */
+/* Modals & Solid Top Up Balance Container */
+.topup-modal-content,
+.safety-modal-content {
+  background: #ffffff !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22) !important;
+}
+
+body.dark-theme .topup-modal-content,
+body.dark-theme .safety-modal-content {
+  background: #1e1e24 !important;
+  border-color: #2d2d3a !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75) !important;
+}
+
 .modal-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -392,8 +438,8 @@
 }
 
 .amount-btn {
-  background: var(--bg-darker);
-  border: 1px solid var(--border-color);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
   color: var(--text-main);
   padding: 16px;
   border-radius: 12px;
@@ -401,6 +447,41 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+body.dark-theme .amount-btn {
+  background: #27272a;
+  border-color: #3f3f46;
+}
+
+.topup-modal-content .safety-input {
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+body.dark-theme .topup-modal-content .safety-input {
+  background: #27272a;
+  color: #f8fafc;
+  border: 1px solid #3f3f46;
+}
+
+/* Remove number input spinner / increase buttons */
+.topup-modal-content input[type="number"]::-webkit-outer-spin-button,
+.topup-modal-content input[type="number"]::-webkit-inner-spin-button,
+.safety-input[type="number"]::-webkit-outer-spin-button,
+.safety-input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.topup-modal-content input[type="number"],
+.safety-input[type="number"],
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .amount-btn:hover, .amount-btn.selected {
@@ -521,4 +602,194 @@
   margin: 0 0 24px 0;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* Styled Payment Option Dropdown */
+.wallet-select-dropdown {
+  width: 100%;
+  padding: 14px 42px 14px 16px;
+  background-color: var(--bg-darker);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b5952f' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 18px;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.wallet-select-dropdown:hover {
+  border-color: var(--accent-gold);
+  box-shadow: 0 4px 14px rgba(212, 175, 55, 0.18);
+}
+
+.wallet-select-dropdown:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25);
+}
+
+.wallet-select-dropdown option {
+  background-color: #ffffff;
+  color: #1e293b;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+body.dark-theme .wallet-select-dropdown option {
+  background-color: #1e1e24;
+  color: #f5f5f5;
+}
+
+/* CustomSelect Embedded Component Styles */
+.custom-select-container {
+  position: relative;
+  width: 100%;
+  user-select: none;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-darker, #ffffff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.custom-select-trigger:hover {
+  border-color: var(--accent-gold, #b5952f);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.18);
+}
+
+.custom-select-container.open .custom-select-trigger {
+  border-color: var(--accent-gold, #b5952f);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.25);
+  background: var(--bg-card, #ffffff);
+}
+
+.trigger-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.select-icon {
+  color: var(--accent-gold, #b5952f);
+  flex-shrink: 0;
+}
+
+.selected-text {
+  color: var(--text-main, #1f2937);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.chevron-icon {
+  color: var(--accent-gold, #b5952f);
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+}
+
+.chevron-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: #ffffff;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(212, 175, 55, 0.2);
+  max-height: 260px;
+  overflow-y: auto;
+  animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+body.dark-theme .custom-select-menu {
+  background: #1e1e24;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(212, 175, 55, 0.2);
+}
+
+@keyframes dropdownSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.custom-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-main, #1f2937);
+  margin-bottom: 2px;
+}
+
+.custom-select-option:last-child {
+  margin-bottom: 0;
+}
+
+.custom-select-option:hover {
+  background: rgba(212, 175, 55, 0.15);
+  color: var(--accent-gold, #b5952f);
+  padding-left: 18px;
+}
+
+.custom-select-option.selected {
+  background: rgba(212, 175, 55, 0.22);
+  color: var(--accent-gold, #b5952f);
+  font-weight: 700;
+}
+
+.option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option-label {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.option-desc {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.check-icon {
+  color: var(--accent-gold, #b5952f);
 }

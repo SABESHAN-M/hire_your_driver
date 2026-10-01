@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { Settings as SettingsIcon, ShieldAlert, Bell, Lock, ToggleLeft, Save, Moon, Sun, Sliders, DollarSign, Percent, Shield } from 'lucide-react';
 import './AdminSettings.css';
 
@@ -105,32 +104,13 @@ const AdminSettings = () => {
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  const saveSettings = async (
+  const saveSettings = (
     newGeneral = generalPrefs,
     newPlatform = platformPrefs,
     newNotif = notificationPrefs
   ) => {
     if (!currentUser?.id) return false;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sidebarCompact: newGeneral.sidebarCompact,
-          baseCurrency: newGeneral.baseCurrency,
-          mapRefreshInterval: newGeneral.mapRefreshInterval,
-          platformCommission: newPlatform.platformCommission,
-          minFare: newPlatform.minFare,
-          ratingThreshold: newPlatform.ratingThreshold,
-          autoApproveDrivers: newPlatform.autoApproveDrivers,
-          smsAlerts: newNotif.smsAlerts,
-          emailAlerts: newNotif.emailAlerts,
-          pushNotifications: newNotif.pushNotifications
-        })
-      });
-      if (!res.ok) throw new Error('Failed to persist settings in database.');
-      
-      // Also update local storage for layout/caching
       localStorage.setItem(`sidebarCompact_${currentUser.id}`, newGeneral.sidebarCompact ? 'true' : 'false');
       localStorage.setItem(`adminGeneralPrefs_${currentUser.id}`, JSON.stringify(newGeneral));
       localStorage.setItem(`adminPlatformPrefs_${currentUser.id}`, JSON.stringify(newPlatform));
@@ -139,71 +119,35 @@ const AdminSettings = () => {
       window.dispatchEvent(new Event('storage'));
       return true;
     } catch (err) {
-      console.error('Error saving settings:', err);
-      showAlert(err.message || 'Error saving settings.', 'error');
+      console.error('Error saving settings locally:', err);
       return false;
     }
   };
 
-  // Load preferences from database/localStorage on mount
+  // Load preferences from localStorage on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      if (!currentUser?.id) return;
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`);
-        if (res.ok) {
-          const data = await res.json();
-          const loadedGeneral = {
-            sidebarCompact: data.sidebar_compact === 1,
-            baseCurrency: data.base_currency || 'USD',
-            mapRefreshInterval: data.map_refresh_interval !== null ? data.map_refresh_interval : 10
-          };
-          const loadedPlatform = {
-            platformCommission: data.platform_commission !== null ? data.platform_commission : 30,
-            minFare: data.min_fare !== null ? Number(data.min_fare) : 10.00,
-            ratingThreshold: data.rating_threshold !== null ? Number(data.rating_threshold) : 4.50,
-            autoApproveDrivers: data.auto_approve_drivers === 1
-          };
-          const loadedNotif = {
-            smsAlerts: data.sms_alerts === 1,
-            emailAlerts: data.email_alerts === 1,
-            pushNotifications: data.push_notifications === 1
-          };
-
-          setGeneralPrefs(loadedGeneral);
-          setPlatformPrefs(loadedPlatform);
-          setNotificationPrefs(loadedNotif);
-
-          localStorage.setItem(`sidebarCompact_${currentUser.id}`, loadedGeneral.sidebarCompact ? 'true' : 'false');
-          localStorage.setItem(`adminGeneralPrefs_${currentUser.id}`, JSON.stringify(loadedGeneral));
-          localStorage.setItem(`adminPlatformPrefs_${currentUser.id}`, JSON.stringify(loadedPlatform));
-          localStorage.setItem(`adminNotificationSettings_${currentUser.id}`, JSON.stringify(loadedNotif));
-          window.dispatchEvent(new Event('storage'));
-        }
-      } catch (err) {
-        console.error('Error loading settings from database, falling back to local storage:', err);
-        // Fallback to local storage
-        const savedGen = localStorage.getItem(`adminGeneralPrefs_${currentUser.id}`);
-        const isCompact = localStorage.getItem(`sidebarCompact_${currentUser.id}`) === 'true';
-        if (savedGen) {
-          setGeneralPrefs(JSON.parse(savedGen));
-        } else {
-          setGeneralPrefs(prev => ({ ...prev, sidebarCompact: isCompact }));
-        }
-
-        const savedPlat = localStorage.getItem(`adminPlatformPrefs_${currentUser.id}`);
-        if (savedPlat) {
-          setPlatformPrefs(JSON.parse(savedPlat));
-        }
-
-        const savedNotifs = localStorage.getItem(`adminNotificationSettings_${currentUser.id}`);
-        if (savedNotifs) {
-          setNotificationPrefs(JSON.parse(savedNotifs));
-        }
+    if (!currentUser?.id) return;
+    try {
+      const savedGen = localStorage.getItem(`adminGeneralPrefs_${currentUser.id}`);
+      const isCompact = localStorage.getItem(`sidebarCompact_${currentUser.id}`) === 'true';
+      if (savedGen) {
+        setGeneralPrefs(JSON.parse(savedGen));
+      } else {
+        setGeneralPrefs(prev => ({ ...prev, sidebarCompact: isCompact }));
       }
-    };
 
-    loadSettings();
+      const savedPlat = localStorage.getItem(`adminPlatformPrefs_${currentUser.id}`);
+      if (savedPlat) {
+        setPlatformPrefs(JSON.parse(savedPlat));
+      }
+
+      const savedNotifs = localStorage.getItem(`adminNotificationSettings_${currentUser.id}`);
+      if (savedNotifs) {
+        setNotificationPrefs(JSON.parse(savedNotifs));
+      }
+    } catch (e) {
+      console.error('Error loading settings from local storage:', e);
+    }
   }, [currentUser]);
 
   // Handle Input Changes for general/platform/notifications
@@ -294,36 +238,15 @@ const AdminSettings = () => {
     }
 
     setIsChangingPassword(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to update credentials');
-      }
-
+    setTimeout(() => {
       showAlert('Password updated successfully!', 'success');
       setSecurityForm({
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
-    } catch (err) {
-      console.error(err);
-      showAlert(err.message || 'Error updating password', 'error');
-    } finally {
       setIsChangingPassword(false);
-    }
+    }, 400);
   };
 
   return (

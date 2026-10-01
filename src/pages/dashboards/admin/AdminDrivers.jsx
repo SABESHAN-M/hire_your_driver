@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { UserCheck, UserX, Clock, CheckCircle, XCircle, Search, X, Shield, Car, Award } from 'lucide-react';
-import { API_BASE_URL } from '../../../config';
 import { useAlert } from '../../../context/AlertContext';
 import './AdminPages.css';
 
@@ -21,57 +20,160 @@ const AdminDrivers = () => {
   const [announceToAll, setAnnounceToAll] = useState(true);
   const [isSubmittingBonus, setIsSubmittingBonus] = useState(false);
 
-  const fetchDrivers = async () => {
-    try {
-      const [allRes, pendingRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/admin/drivers`),
-        fetch(`${API_BASE_URL}/api/admin/drivers/pending`)
-      ]);
-      let loadedDrivers = [];
-      if (allRes.ok) {
-        loadedDrivers = await allRes.json();
-        setDrivers(loadedDrivers);
-      }
-      if (pendingRes.ok) setPendingDrivers(await pendingRes.json());
+  const defaultDriversList = [
+    {
+      id: 3,
+      firstName: 'Rajesh',
+      first_name: 'Rajesh',
+      lastName: 'Kumar',
+      last_name: 'Kumar',
+      email: 'rajesh@gmail.com',
+      phone_number: '9876543212',
+      role: 'driver',
+      status: 'active',
+      license_no: 'DL-042019984321',
+      rating: 4.85,
+      total_trips: 142,
+      status_approval: 'approved',
+      profile_photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 4,
+      firstName: 'Suresh',
+      first_name: 'Suresh',
+      lastName: 'Verma',
+      last_name: 'Verma',
+      email: 'suresh@gmail.com',
+      phone_number: '9876543213',
+      role: 'driver',
+      status: 'active',
+      license_no: 'DL-052020119876',
+      rating: 4.90,
+      total_trips: 89,
+      status_approval: 'approved',
+      profile_photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 9,
+      firstName: 'Karan',
+      first_name: 'Karan',
+      lastName: 'Mehta',
+      last_name: 'Mehta',
+      email: 'karan@gmail.com',
+      phone_number: '9876543219',
+      role: 'driver',
+      status: 'active',
+      license_no: 'DL-092021004123',
+      rating: 5.0,
+      total_trips: 0,
+      status_approval: 'pending',
+      profile_photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+      created_at: new Date().toISOString()
+    }
+  ];
 
-      // Check query parameter for auto-review
+  const fetchDrivers = () => {
+    try {
+      const stored = localStorage.getItem('hyd_demo_users');
+      let allUsers = [];
+      if (stored) {
+        allUsers = JSON.parse(stored);
+      }
+      const driverList = allUsers.filter(u => u.role === 'driver');
+      let attRecords = [];
+      try {
+        const attRaw = localStorage.getItem('hyd_demo_attendance');
+        if (attRaw) attRecords = JSON.parse(attRaw) || [];
+      } catch (e) {}
+
+      // Combine default drivers with registered drivers
+      const driverMap = new Map();
+      defaultDriversList.forEach(d => driverMap.set(d.email || d.id, d));
+      driverList.forEach(d => driverMap.set(d.email || d.id, { ...driverMap.get(d.email || d.id), ...d }));
+      const finalDrivers = Array.from(driverMap.values());
+
+      const driversWithDuty = finalDrivers.map(d => {
+        const att = Array.isArray(attRecords) ? attRecords.find(a => String(a.user_id) === String(d.id)) : null;
+        const isOnDuty = att ? ((att.is_clocked_in === 1 || att.online === true) && Boolean(att.last_clock_in)) : false;
+        return { ...d, is_on_duty: isOnDuty };
+      });
+
+      setDrivers(driversWithDuty);
+      setPendingDrivers(driversWithDuty.filter(d => d.status_approval === 'pending'));
+
       const queryParams = new URLSearchParams(location.search);
       const reviewId = queryParams.get('review');
-      if (reviewId && loadedDrivers.length > 0) {
-        const driverToReview = loadedDrivers.find(d => d.id === parseInt(reviewId));
+      if (reviewId && driversWithDuty.length > 0) {
+        const driverToReview = driversWithDuty.find(d => String(d.id) === String(reviewId));
         if (driverToReview) {
           setSelectedDriver(driverToReview);
           setFilter('pending');
         }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      setDrivers(defaultDriversList);
+      setPendingDrivers(defaultDriversList.filter(d => d.status_approval === 'pending'));
+    }
   };
 
-  useEffect(() => { fetchDrivers(); }, [location.search]);
+  useEffect(() => { 
+    fetchDrivers(); 
+    const handleStorage = () => fetchDrivers();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('hyd:duty-change', handleStorage);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('hyd:duty-change', handleStorage);
+    };
+  }, [location.search]);
 
-  const handleApprove = async (id, name) => {
+  const handleApprove = (id, name) => {
+    showAlert(`Driver ${name} approved successfully!`, 'success');
+    const updated = drivers.map(d => d.id === id ? { ...d, status_approval: 'approved' } : d);
+    setDrivers(updated);
+    setPendingDrivers(updated.filter(d => d.status_approval === 'pending'));
+    setSelectedDriver(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/drivers/${id}/approve`, { method: 'PATCH' });
-      if (res.ok) {
-        showAlert(`Driver ${name} approved successfully!`, 'success');
-        setSelectedDriver(null);
-        fetchDrivers();
-      }
-    } catch (err) { showAlert('Failed to approve driver.', 'error'); }
+      const stored = localStorage.getItem('hyd_demo_users');
+      const allUsers = stored ? JSON.parse(stored) : [];
+      const updatedAll = allUsers.map(u => u.id === id ? { ...u, status_approval: 'approved' } : u);
+      localStorage.setItem('hyd_demo_users', JSON.stringify(updatedAll));
+
+      // Push notification to driver
+      const rawNotifs = localStorage.getItem('hyd_demo_notifications_driver');
+      const driverNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+      driverNotifs.unshift({
+        id: Date.now(),
+        role: 'driver',
+        title: 'Documents Verified & Approved',
+        message: `Congratulations ${name}! Your driver profile and credentials have been officially approved by Admin.`,
+        is_read: 0,
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem('hyd_demo_notifications_driver', JSON.stringify(driverNotifs));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
   };
 
-  const handleReject = async (id, name) => {
+  const handleReject = (id, name) => {
+    showAlert(`Driver ${name} application rejected.`, 'error');
+    const updated = drivers.map(d => d.id === id ? { ...d, status_approval: 'rejected' } : d);
+    setDrivers(updated);
+    setPendingDrivers(updated.filter(d => d.status_approval === 'pending'));
+    setSelectedDriver(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/drivers/${id}/reject`, { method: 'PATCH' });
-      if (res.ok) {
-        showAlert(`Driver ${name} rejected.`, 'error');
-        setSelectedDriver(null);
-        fetchDrivers();
-      }
-    } catch (err) { showAlert('Failed to reject driver.', 'error'); }
+      const stored = localStorage.getItem('hyd_demo_users');
+      const allUsers = stored ? JSON.parse(stored) : [];
+      const updatedAll = allUsers.map(u => u.id === id ? { ...u, status_approval: 'rejected' } : u);
+      localStorage.setItem('hyd_demo_users', JSON.stringify(updatedAll));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
   };
 
-  const handleAwardBonus = async (e) => {
+  const handleAwardBonus = (e) => {
     e.preventDefault();
     if (!selectedDriver) return;
     
@@ -81,34 +183,38 @@ const AdminDrivers = () => {
     }
     
     setIsSubmittingBonus(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/drivers/${selectedDriver.id}/bonus`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          amount: amount,
-          message: bonusMessage,
-          announceToAll: announceToAll
-        })
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        showAlert(data.message || 'Bonus awarded successfully!', 'success');
-        setIsBonusModalOpen(false);
-        setSelectedDriver(null);
-        fetchDrivers();
-      } else {
-        showAlert(data.error || 'Failed to award bonus.', 'error');
+    setTimeout(() => {
+      try {
+        // 1. Credit driver wallet
+        const walletKey = `hyd_driver_wallet_${selectedDriver.id}`;
+        const rawWallet = localStorage.getItem(walletKey);
+        const driverWallet = rawWallet ? JSON.parse(rawWallet) : { balance: 1250.00, todayEarnings: 150.00, tripsToday: 2 };
+        driverWallet.balance = (parseFloat(driverWallet.balance) || 0) + amount;
+        driverWallet.todayEarnings = (parseFloat(driverWallet.todayEarnings) || 0) + amount;
+        localStorage.setItem(walletKey, JSON.stringify(driverWallet));
+
+        // 2. Notify driver
+        const rawNotifs = localStorage.getItem('hyd_demo_notifications_driver');
+        const driverNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+        driverNotifs.unshift({
+          id: Date.now(),
+          role: 'driver',
+          title: 'Performance Bonus Awarded!',
+          message: bonusMessage || `Admin awarded you an exceptional performance bonus of $${amount.toFixed(2)}. Funds credited to your wallet!`,
+          is_read: 0,
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('hyd_demo_notifications_driver', JSON.stringify(driverNotifs));
+        window.dispatchEvent(new Event('storage'));
+      } catch (err) {
+        console.error('Error awarding bonus:', err);
       }
-    } catch (err) {
-      console.error(err);
-      showAlert('Network error awarding bonus.', 'error');
-    } finally {
+
+      showAlert(`Bonus of $${amount.toFixed(2)} awarded to ${selectedDriver.firstName || selectedDriver.first_name}!`, 'success');
+      setIsBonusModalOpen(false);
+      setSelectedDriver(null);
       setIsSubmittingBonus(false);
-    }
+    }, 300);
   };
 
   const filteredDrivers = drivers.filter(d => {

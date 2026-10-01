@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import DashboardLayout from './pages/dashboards/DashboardLayout';
 import ClientDashboard from './pages/dashboards/client/ClientDashboard';
@@ -26,12 +26,53 @@ import AdminUsers from './pages/dashboards/admin/AdminUsers';
 import AdminRevenue from './pages/dashboards/admin/AdminRevenue';
 import AdminSettings from './pages/dashboards/admin/AdminSettings';
 import AdminMessages from './pages/dashboards/admin/AdminMessages';
-import AdminDatabaseManager from './pages/dashboards/admin/AdminDatabaseManager';
 
 import { AlertProvider } from './context/AlertContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import AlertPopup from './components/AlertPopup';
+import Login from './components/Login';
+import Signup from './components/Signup';
+
+const ScrollToTop = () => {
+  const { pathname } = useLocation();
+
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    const scrollContainers = document.querySelectorAll('.dashboard-content, .dashboard-main, .dashboard-layout, body, html');
+    scrollContainers.forEach(container => {
+      if (container) {
+        container.scrollTop = 0;
+      }
+    });
+  }, [pathname]);
+
+  return null;
+};
+
+const GlobalAuthModals = () => {
+  const { 
+    isLoginOpen, isSignupOpen, signupRole, 
+    openLogin, openSignup, closeAuth 
+  } = useAuth();
+
+  return (
+    <>
+      <Login 
+        isOpen={isLoginOpen} 
+        onClose={closeAuth} 
+        onSwitchToSignup={() => openSignup('client')} 
+      />
+      
+      <Signup 
+        isOpen={isSignupOpen} 
+        onClose={closeAuth} 
+        onSwitchToLogin={openLogin}
+        defaultRole={signupRole}
+      />
+    </>
+  );
+};
 
 function App() {
   return (
@@ -39,7 +80,9 @@ function App() {
     <ThemeProvider>
     <AlertProvider>
       <BrowserRouter>
+        <ScrollToTop />
         <AlertPopup />
+        <GlobalAuthModals />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           
@@ -73,7 +116,6 @@ function App() {
             <Route path="revenue" element={<AdminRevenue />} />
             <Route path="messages" element={<AdminMessages />} />
             <Route path="settings" element={<AdminSettings />} />
-            <Route path="database" element={<AdminDatabaseManager />} />
           </Route>
 
           {/* Fallback route */}

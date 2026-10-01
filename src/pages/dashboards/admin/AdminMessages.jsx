@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { 
-  MessageSquare, Send, Users, Ticket, Trash2, Megaphone, User, Search, RefreshCw, Eye, Sparkles, Filter
+  MessageSquare, Send, Users, Ticket, Trash2, Megaphone, User, Search, RefreshCw, Eye, Sparkles, Filter, Lock, CheckCircle2, Radio, Car, Bell, Copy, Check
 } from 'lucide-react';
 import './AdminMessages.css';
 import '../admin/AdminPages.css';
@@ -208,21 +207,65 @@ const AdminMessages = () => {
 
   // Active message details modal state
   const [activeModalMessage, setActiveModalMessage] = useState(null);
+  const [copiedCode, setCopiedCode] = useState(null);
+
+  const extractPromoCode = (item) => {
+    if (!item) return null;
+    if (item.promo_code) return item.promo_code.trim();
+    const text = `${item.title || ''} ${item.message || ''}`;
+    const match = text.match(/(?:promo\s+code|discount\s+code|\bcode\b)\s*[:\-]?\s*['"]?([A-Za-z0-9\-_]{4,16})['"]?/i);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (!['STATUS', 'POSTAL', 'PASSCODE', 'NUMBER', 'ERROR', 'HTTP'].includes(candidate.toUpperCase())) {
+        return candidate.toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const handleCopyCode = (code, e) => {
+    if (e) e.stopPropagation();
+    if (!code) return;
+    try {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      showAlert(`Promo code "${code}" copied to clipboard!`, 'success');
+      setTimeout(() => setCopiedCode(null), 2500);
+    } catch (err) {
+      showAlert(`Code: ${code}`, 'info');
+    }
+  };
+
+  const defaultSampleMessages = [
+    { id: 1, title: 'Summer Festival Promo', message: 'Use code HYD50 for flat 50% discount on all weekend outstation bookings.', message_type: 'promo', promo_code: 'HYD50', role: 'client', created_at: new Date(Date.now() - 3600000 * 24).toISOString() },
+    { id: 2, title: 'Driver Incentive Program', message: 'Complete 10 trips this weekend to earn an additional $100 cash bonus.', message_type: 'news', promo_code: null, role: 'driver', created_at: new Date(Date.now() - 3600000 * 48).toISOString() }
+  ];
 
   // Fetch initial data
-  const fetchData = async () => {
+  const fetchData = () => {
     setIsLoading(true);
     try {
-      // 1. Fetch users
-      const resUsers = await fetch(`${API_BASE_URL}/api/admin/users`);
-      if (resUsers.ok) setUsers(await resUsers.json());
+      const storedUsers = localStorage.getItem('hyd_demo_users');
+      if (storedUsers) {
+        setUsers(JSON.parse(storedUsers));
+      } else {
+        setUsers([
+          { id: 1, firstName: 'System', lastName: 'Admin', role: 'admin', email: 'admin@hireyourdriver.com' },
+          { id: 2, firstName: 'Rahul', lastName: 'Sharma', role: 'client', email: 'rahul@gmail.com' },
+          { id: 3, firstName: 'Rajesh', lastName: 'Kumar', role: 'driver', email: 'rajesh@gmail.com' },
+          { id: 4, firstName: 'Suresh', lastName: 'Verma', role: 'driver', email: 'suresh@gmail.com' }
+        ]);
+      }
 
-      // 2. Fetch sent logs
-      const resMsgs = await fetch(`${API_BASE_URL}/api/admin/messages`);
-      if (resMsgs.ok) setMessages(await resMsgs.json());
+      const storedMsgs = localStorage.getItem('hyd_demo_messages');
+      if (storedMsgs) {
+        setMessages(JSON.parse(storedMsgs));
+      } else {
+        setMessages(defaultSampleMessages);
+      }
     } catch (err) {
       console.error(err);
-      showAlert('Failed to load message center data.', 'error');
+      setMessages(defaultSampleMessages);
     } finally {
       setIsLoading(false);
     }
@@ -374,62 +417,118 @@ const AdminMessages = () => {
     }
 
     setIsSending(true);
+    const newMsg = {
+      id: Date.now(),
+      target_type: targetType,
+      message_type: messageType,
+      promo_code: messageType === 'promo' ? promoCode.trim() : null,
+      discount_percent: messageType === 'promo' ? discountPercent : null,
+      title: title.trim(),
+      message: message.trim(),
+      role: targetType.includes('driver') ? 'driver' : (targetType.includes('client') ? 'client' : null),
+      created_at: new Date().toISOString()
+    };
+
+    const updated = [newMsg, ...messages];
+    setMessages(updated);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targetType,
-          targetUserId: (targetType === 'specific_client' || targetType === 'specific_driver' || targetType === 'specific_users') ? selectedUserIds : null,
-          messageType,
-          promoCode: messageType === 'promo' ? promoCode.trim() : null,
-          title: title.trim(),
-          message: message.trim()
-        })
+      localStorage.setItem('hyd_demo_messages', JSON.stringify(updated));
+
+      // Register promo code for client booking validation
+      if (messageType === 'promo' && promoCode.trim()) {
+        try {
+          const registered = JSON.parse(localStorage.getItem('hyd_promo_codes') || '{}');
+          registered[promoCode.trim().toUpperCase()] = discountPercent;
+          localStorage.setItem('hyd_promo_codes', JSON.stringify(registered));
+        } catch (e) {}
+      }
+
+      const newNotifItem = {
+        id: Date.now(),
+        title: title.trim(),
+        message: message.trim(),
+        promo_code: messageType === 'promo' ? promoCode.trim() : null,
+        discount_percent: messageType === 'promo' ? discountPercent : null,
+        message_type: messageType,
+        role: newMsg.role,
+        is_read: 0,
+        created_at: new Date().toISOString()
+      };
+
+      const pushToKey = (key, item) => {
+        try {
+          const raw = localStorage.getItem(key);
+          const list = raw ? JSON.parse(raw) : [];
+          list.unshift(item);
+          localStorage.setItem(key, JSON.stringify(list));
+        } catch (err) {}
+      };
+
+      const isClientTarget = targetType === 'all_clients' || targetType === 'specific_client' || targetType === 'all_users' || targetType === 'specific_users';
+      const isDriverTarget = targetType === 'all_drivers' || targetType === 'specific_driver' || targetType === 'all_users' || targetType === 'specific_users';
+
+      if (isClientTarget) {
+        pushToKey('hyd_demo_notifications_client', { ...newNotifItem, role: 'client' });
+      }
+      if (isDriverTarget) {
+        pushToKey('hyd_demo_notifications_driver', { ...newNotifItem, role: 'driver' });
+      }
+
+      // Log in Admin's notification console
+      pushToKey('hyd_demo_notifications_admin', {
+        id: Date.now() + 1,
+        title: `Campaign Dispatched: ${title.trim()}`,
+        message: `Broadcast sent to ${targetType.replace(/_/g, ' ')}: "${message.trim().slice(0, 85)}${message.trim().length > 85 ? '...' : ''}"`,
+        role: 'admin',
+        is_read: 0,
+        created_at: new Date().toISOString()
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        showAlert(data.message || 'Announcement published successfully!', 'success');
-        // Reset form inputs
-        setTitle('');
-        setMessage('');
-        setPromoCode('');
-        setSelectedUserIds([]);
-        setIsMessagePristine(true);
-        
-        // Refresh logs
-        fetchData();
-      } else {
-        throw new Error(data.error || 'Failed to send announcement.');
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert(err.message || 'Error sending message.', 'error');
-    } finally {
-      setIsSending(false);
-    }
+      // Backward compatibility key
+      pushToKey('hyd_demo_notifications', newNotifItem);
+
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
+
+    showAlert('Announcement published successfully!', 'success');
+    setTitle('');
+    setMessage('');
+    setPromoCode('');
+    setSelectedUserIds([]);
+    setIsMessagePristine(true);
+    setIsSending(false);
   };
 
-  const handleRecall = async (msgId) => {
+  const handleRecall = (msgId) => {
     if (!window.confirm('Are you sure you want to recall this message? It will immediately delete the message from the recipient\'s notifications.')) {
       return;
     }
 
+    const targetMsg = messages.find(m => m.id === msgId);
+    const updated = messages.filter(m => m.id !== msgId);
+    setMessages(updated);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/messages/${msgId}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        showAlert('Announcement recalled successfully!', 'success');
-        setMessages(prev => prev.filter(m => m.id !== msgId));
-      } else {
-        throw new Error('Failed to recall message.');
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert(err.message || 'Error recalling message.', 'error');
-    }
+      localStorage.setItem('hyd_demo_messages', JSON.stringify(updated));
+
+      const removeFromKey = (key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const filtered = list.filter(n => n.id !== msgId && (!targetMsg || n.title !== targetMsg.title));
+            localStorage.setItem(key, JSON.stringify(filtered));
+          }
+        } catch (e) {}
+      };
+
+      removeFromKey('hyd_demo_notifications_client');
+      removeFromKey('hyd_demo_notifications_driver');
+      removeFromKey('hyd_demo_notifications_admin');
+      removeFromKey('hyd_demo_notifications');
+
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
+    showAlert('Announcement recalled successfully!', 'success');
   };
 
   const getRecipientLabel = (msg) => {
@@ -507,9 +606,42 @@ const AdminMessages = () => {
                 </div>
 
                 <div className="composer-field-group">
-                  {/* Recipient Dropdown */}
+                  {/* Recipient Audience */}
                   <div className="form-group">
                     <span className="form-label">Recipient Audience</span>
+                    
+                    {/* Interactive Target Choice Pills */}
+                    <div className="composer-choice-pills" style={{ marginBottom: '10px' }}>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${targetType === 'all_clients' ? 'active' : ''}`}
+                        onClick={() => { setTargetType('all_clients'); setSelectedUserIds([]); }}
+                      >
+                        <User size={14} /> All Clients
+                      </button>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${targetType === 'all_drivers' ? 'active' : ''}`}
+                        onClick={() => { setTargetType('all_drivers'); setSelectedUserIds([]); }}
+                      >
+                        <Car size={14} /> All Drivers
+                      </button>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${targetType === 'all_users' ? 'active' : ''}`}
+                        onClick={() => { setTargetType('all_users'); setSelectedUserIds([]); }}
+                      >
+                        <Radio size={14} /> Broadcast All
+                      </button>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${targetType.startsWith('specific_') ? 'active' : ''}`}
+                        onClick={() => { setTargetType('specific_users'); }}
+                      >
+                        <Users size={14} /> Specific Target
+                      </button>
+                    </div>
+
                     <select
                       className="composer-input"
                       value={targetType}
@@ -518,15 +650,48 @@ const AdminMessages = () => {
                       <option value="all_clients">All Registered Clients</option>
                       <option value="all_drivers">All Registered Drivers</option>
                       <option value="all_users">All Clients & Drivers (Broadcast)</option>
-                      <option value="specific_client">Targeted Client User...</option>
-                      <option value="specific_driver">Targeted Driver User...</option>
-                      <option value="specific_users">Targeted Clients & Drivers...</option>
+                      <option value="specific_users">Targeted Clients & Drivers (Specific Selection)</option>
+                      <option value="specific_client">Targeted Clients Only (Specific Selection)</option>
+                      <option value="specific_driver">Targeted Drivers Only (Specific Selection)</option>
                     </select>
                   </div>
 
-                  {/* Search Autocomplete / Selected Users Checklist display */}
-                  {(targetType === 'specific_client' || targetType === 'specific_driver' || targetType === 'specific_users') && (
+                  {/* If specific target is selected, make checklist visible; otherwise show disabled state */}
+                  {targetType.startsWith('specific_') ? (
                     <div className="form-group" style={{ animation: 'fadeIn 0.2s ease' }}>
+                      <div className="composer-active-banner">
+                        <CheckCircle2 size={15} />
+                        <span>Individual Recipient Targeting is Active &amp; Visible</span>
+                      </div>
+
+                      {/* Sub-choice for role filter */}
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                        <button
+                          type="button"
+                          className={`composer-pill-btn ${targetType === 'specific_users' ? 'active' : ''}`}
+                          style={{ padding: '4px 10px', fontSize: '11px' }}
+                          onClick={() => setTargetType('specific_users')}
+                        >
+                          All Roles
+                        </button>
+                        <button
+                          type="button"
+                          className={`composer-pill-btn ${targetType === 'specific_client' ? 'active' : ''}`}
+                          style={{ padding: '4px 10px', fontSize: '11px' }}
+                          onClick={() => setTargetType('specific_client')}
+                        >
+                          Clients Only
+                        </button>
+                        <button
+                          type="button"
+                          className={`composer-pill-btn ${targetType === 'specific_driver' ? 'active' : ''}`}
+                          style={{ padding: '4px 10px', fontSize: '11px' }}
+                          onClick={() => setTargetType('specific_driver')}
+                        >
+                          Drivers Only
+                        </button>
+                      </div>
+
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span className="form-label">Target Recipients Checklist</span>
                         {selectedUserIds.length > 0 && (
@@ -573,7 +738,7 @@ const AdminMessages = () => {
                                 color: 'var(--accent-gold)',
                                 animation: 'slideUp 0.15s ease'
                               }}>
-                                <span style={{ fontWeight: 600 }}>{u.first_name} {u.last_name[0]}.</span>
+                                <span style={{ fontWeight: 600 }}>{u.first_name || u.firstName} {(u.last_name || u.lastName || '')[0]}.</span>
                                 <button
                                   type="button"
                                   onClick={() => setSelectedUserIds(prev => prev.filter(id => id !== uid))}
@@ -597,11 +762,53 @@ const AdminMessages = () => {
                         </div>
                       )}
                     </div>
+                  ) : (
+                    <div className="composer-disabled-box">
+                      <div className="disabled-box-content">
+                        <Lock size={16} />
+                        <div>
+                          <div className="disabled-box-title">Target Checklist is Disabled</div>
+                          <div className="disabled-box-desc">Currently broadcasting to entire audience. Click "Specific Target" to pick individual users.</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-enable-particular"
+                        onClick={() => setTargetType('specific_users')}
+                      >
+                        Enable Specific Target
+                      </button>
+                    </div>
                   )}
 
-                  {/* Message Type Selection */}
-                  <div className="form-group">
-                    <span className="form-label">Campaign Type</span>
+                  {/* Campaign Type / Category Selection */}
+                  <div className="form-group" style={{ marginTop: '16px' }}>
+                    <span className="form-label">Campaign Type / Category</span>
+                    <div className="composer-choice-pills" style={{ marginBottom: '10px' }}>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${messageType === 'news' ? 'active' : ''}`}
+                        onClick={() => {
+                          setMessageType('news');
+                          setTitle('');
+                          setMessage('');
+                          setIsMessagePristine(true);
+                        }}
+                      >
+                        <Megaphone size={14} /> News &amp; Announcement
+                      </button>
+                      <button
+                        type="button"
+                        className={`composer-pill-btn ${messageType === 'promo' ? 'active' : ''}`}
+                        onClick={() => {
+                          setMessageType('promo');
+                          if (!promoCode) generatePromoCode();
+                        }}
+                      >
+                        <Ticket size={14} /> Promo &amp; Discount Code
+                      </button>
+                    </div>
+
                     <select
                       className="composer-input"
                       value={messageType}
@@ -612,6 +819,8 @@ const AdminMessages = () => {
                           setTitle('');
                           setMessage('');
                           setIsMessagePristine(true);
+                        } else if (newType === 'promo' && !promoCode) {
+                          generatePromoCode();
                         }
                       }}
                     >
@@ -620,9 +829,14 @@ const AdminMessages = () => {
                     </select>
                   </div>
 
-                  {/* Promo Code inputs */}
-                  {messageType === 'promo' && (
+                  {/* Promo Code inputs or Disabled Box */}
+                  {messageType === 'promo' ? (
                     <div className="promo-setup-panel" style={{ animation: 'slideUp 0.25s ease' }}>
+                      <div className="composer-active-banner">
+                        <CheckCircle2 size={15} />
+                        <span>Promo &amp; Discount Configuration is Active &amp; Visible</span>
+                      </div>
+
                       <div className="form-group">
                         <span className="form-label">Offer Percentage Discount</span>
                         <select
@@ -675,6 +889,26 @@ const AdminMessages = () => {
                           </button>
                         </div>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="composer-disabled-box">
+                      <div className="disabled-box-content">
+                        <Lock size={16} />
+                        <div>
+                          <div className="disabled-box-title">Promo &amp; Discount Offer is Disabled</div>
+                          <div className="disabled-box-desc">News mode is active. Click "Promo &amp; Discount Code" to activate discount offers &amp; codes.</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-enable-particular"
+                        onClick={() => {
+                          setMessageType('promo');
+                          if (!promoCode) generatePromoCode();
+                        }}
+                      >
+                        Enable Promo &amp; Discount
+                      </button>
                     </div>
                   )}
                 </div>
@@ -834,9 +1068,39 @@ const AdminMessages = () => {
                         <tr key={msg.id}>
                           <td style={{ fontWeight: 600, fontSize: '13px' }}>{getRecipientLabel(msg)}</td>
                           <td>
-                            <span className={`admin-table-badge ${isPromo ? 'badge-promo' : 'badge-news'}`}>
-                              {isPromo ? 'Promo Code' : 'Announcement'}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span className={`admin-table-badge ${isPromo || msg.promo_code ? 'badge-promo' : 'badge-news'}`}>
+                                {isPromo || msg.promo_code ? 'Promo Code' : 'Announcement'}
+                              </span>
+                              {(() => {
+                                const pCode = extractPromoCode(msg);
+                                if (!pCode) return null;
+                                const isCopied = copiedCode === pCode;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCopyCode(pCode, e)}
+                                    style={{
+                                      background: isCopied ? '#22c55e' : 'rgba(212, 175, 55, 0.15)',
+                                      border: '1px solid rgba(212, 175, 55, 0.3)',
+                                      color: isCopied ? '#ffffff' : 'var(--accent-gold)',
+                                      borderRadius: '6px',
+                                      padding: '2px 6px',
+                                      fontSize: '11px',
+                                      fontWeight: '700',
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                    title="Copy Promo Code"
+                                  >
+                                    {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                                    {isCopied ? 'Copied' : pCode}
+                                  </button>
+                                );
+                              })()}
+                            </div>
                           </td>
                           <td style={{ fontWeight: 700, fontSize: '14px' }}>{msg.title}</td>
                           <td className="admin-table-muted" style={{ fontSize: '13px', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -892,11 +1156,61 @@ const AdminMessages = () => {
               <div className="admin-modal-field">
                 <span className="admin-modal-label">Campaign Category</span>
                 <span className="admin-modal-value">
-                  <span className={`admin-table-badge ${activeModalMessage.title.startsWith('[PROMO CODE:') ? 'badge-promo' : 'badge-news'}`}>
-                    {activeModalMessage.title.startsWith('[PROMO CODE:') ? 'Promo Code' : 'News Alert'}
+                  <span className={`admin-table-badge ${activeModalMessage.title.startsWith('[PROMO CODE:') || activeModalMessage.promo_code ? 'badge-promo' : 'badge-news'}`}>
+                    {activeModalMessage.title.startsWith('[PROMO CODE:') || activeModalMessage.promo_code ? 'Promo Code' : 'News Alert'}
                   </span>
                 </span>
               </div>
+              {(() => {
+                const modalPromo = extractPromoCode(activeModalMessage);
+                if (!modalPromo) return null;
+                const isCopied = copiedCode === modalPromo;
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(0, 0, 0, 0.35))',
+                    border: '1px dashed var(--accent-gold)',
+                    borderRadius: '12px',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Ticket size={20} color="var(--accent-gold)" />
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                          Promo Code
+                        </div>
+                        <div style={{ fontSize: '16px', fontWeight: '800', color: 'var(--accent-gold)', letterSpacing: '1px', fontFamily: 'monospace' }}>
+                          {modalPromo}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyCode(modalPromo, e)}
+                      style={{
+                        background: isCopied ? '#22c55e' : 'var(--accent-gold)',
+                        color: isCopied ? '#ffffff' : '#000000',
+                        border: 'none',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {isCopied ? <Check size={14} /> : <Copy size={14} />}
+                      {isCopied ? 'Copied!' : 'Copy Code'}
+                    </button>
+                  </div>
+                );
+              })()}
               <div className="admin-modal-field" style={{ display: 'block' }}>
                 <span className="admin-modal-label" style={{ display: 'block', marginBottom: '6px' }}>Subject Header</span>
                 <span className="admin-modal-value" style={{ display: 'block', fontSize: '15px', color: 'var(--text-main)', fontWeight: 800 }}>

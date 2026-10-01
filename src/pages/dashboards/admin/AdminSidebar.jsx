@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  LayoutDashboard, Users, Car, CreditCard, UserCheck, Settings, Shield, MessageSquare, Database
+  LayoutDashboard, Users, Car, CreditCard, UserCheck, Settings, Shield, MessageSquare
 } from 'lucide-react';
 
 const AdminSidebar = ({ userRole, isCompact, theme, showAlert }) => {
@@ -14,7 +14,6 @@ const AdminSidebar = ({ userRole, isCompact, theme, showAlert }) => {
     { path: '/dashboard/admin/users', label: 'User Management', icon: <Users size={20} /> },
     { path: '/dashboard/admin/revenue', label: 'Revenue & Wallet', icon: <CreditCard size={20} /> },
     { path: '/dashboard/admin/messages', label: 'Message Center', icon: <MessageSquare size={20} /> },
-    { path: '/dashboard/admin/database', label: 'Database Explorer', icon: <Database size={20} /> },
     { path: '/dashboard/admin/settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
 

@@ -1,67 +1,194 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Car, CreditCard, UserCheck, TrendingUp, Clock, AlertTriangle, CheckCircle, XCircle, Activity, Bell, ArrowUpRight } from 'lucide-react';
-import { API_BASE_URL } from '../../../config';
 import { useAlert } from '../../../context/AlertContext';
 import './AdminDashboard.css';
 
 const AdminDashboard = () => {
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState({
+    totalUsers: 148,
+    activeDrivers: 24,
+    totalBookings: 312,
+    totalRevenue: 28450,
+    adminRevenue: 48920.50,
+    upcomingBookings: 2,
+    startedBookings: 1,
+    completedBookings: 305,
+    cancelledBookings: 4,
+    driverApprovalsPending: 1
+  });
   const [notifications, setNotifications] = useState([]);
-  const [pendingDrivers, setPendingDrivers] = useState([]);
+  const [pendingDrivers, setPendingDrivers] = useState([
+    { id: 9, firstName: 'Karan', first_name: 'Karan', lastName: 'Mehta', last_name: 'Mehta', license_no: 'DL-092021004123', email: 'karan@gmail.com', phone_number: '9876543219', status_approval: 'pending' }
+  ]);
   const [recentBookings, setRecentBookings] = useState([]);
   const navigate = useNavigate();
   const { showAlert } = useAlert();
 
-  const fetchAll = async () => {
+  const fetchAll = () => {
     try {
-      const [statsRes, notifRes, pendingRes, bookingsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/admin/stats`),
-        fetch(`${API_BASE_URL}/api/notifications?role=admin`),
-        fetch(`${API_BASE_URL}/api/admin/drivers/pending`),
-        fetch(`${API_BASE_URL}/api/admin/bookings`)
-      ]);
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (notifRes.ok) setNotifications(await notifRes.json());
-      if (pendingRes.ok) setPendingDrivers(await pendingRes.json());
-      if (bookingsRes.ok) {
-        const data = await bookingsRes.json();
-        setRecentBookings(data.slice(0, 5));
+      let bookingsList = [];
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const parsed = JSON.parse(storedBookings);
+        bookingsList = Array.isArray(parsed) ? parsed : [];
+        setRecentBookings(bookingsList.slice(0, 5));
+      } else {
+        bookingsList = [
+          { id: 1, booking_reference: 'HYD-7102', client_name: 'Rahul Sharma', pickup_location: 'Indiranagar 100ft Road', dropoff_location: 'Kempegowda Airport', status: 'upcoming', estimated_fare: 850, booking_date: new Date().toISOString() },
+          { id: 2, booking_reference: 'HYD-6819', client_name: 'Priya Patel', pickup_location: 'MG Road', dropoff_location: 'Electronic City', status: 'completed', estimated_fare: 1250, booking_date: new Date(Date.now() - 86400000).toISOString() }
+        ];
+        setRecentBookings(bookingsList);
+      }
+
+      // Compute status breakdown from active bookings
+      const upcoming = bookingsList.filter(b => b.status === 'upcoming' || b.status === 'unassigned' || b.status === 'pending' || b.status === 'request').length;
+      const started = bookingsList.filter(b => b.status === 'started' || b.status === 'in_progress').length;
+      const completed = bookingsList.filter(b => b.status === 'completed').length;
+      const cancelled = bookingsList.filter(b => b.status === 'cancelled').length;
+
+      // Read admin revenue from storage, synced with hyd_demo_bookings
+      const completedTripsList = bookingsList.filter(b => b.status === 'completed');
+      const settledNetFares = completedTripsList.reduce((acc, b) => {
+        const fare = Number(b.estimated_fare || b.fare || b.total_fare || (typeof b.price === 'string' ? b.price.replace(/[^0-9.]/g, '') : b.price) || 0);
+        return acc + fare;
+      }, 0);
+      const completedCommissions = completedTripsList.reduce((acc, b) => {
+        const comm = Number(b.company_revenue || b.admin_commission || b.commission || ((b.estimated_fare || b.fare || 0) * 0.15));
+        return acc + comm;
+      }, 0);
+
+      let adminRevBalance = 25000.00 + completedCommissions - 500.00;
+      let totalPlatformRev = settledNetFares > 0 ? settledNetFares : 1250.00;
+      try {
+        const storedAdminRev = localStorage.getItem('hyd_demo_admin_revenue');
+        if (storedAdminRev) {
+          const parsedRev = JSON.parse(storedAdminRev);
+          if (parsedRev.wallet?.balance !== undefined && parsedRev.wallet?.currency === 'INR') {
+            adminRevBalance = Number(parsedRev.wallet.balance);
+          }
+          if (parsedRev.totalPlatformRevenue !== undefined && parsedRev.wallet?.currency === 'INR') {
+            totalPlatformRev = Number(parsedRev.totalPlatformRevenue);
+          }
+        }
+      } catch (e) {}
+
+      // Read users from storage to calculate dynamic user & driver counts
+      let registeredUsers = [];
+      try {
+        const uRaw = localStorage.getItem('hyd_demo_users');
+        if (uRaw) registeredUsers = JSON.parse(uRaw) || [];
+      } catch (e) {}
+
+      const allDrivers = registeredUsers.filter(u => u.role === 'driver');
+      const defaultPending = [
+        { id: 9, firstName: 'Karan', first_name: 'Karan', lastName: 'Mehta', last_name: 'Mehta', license_no: 'DL-092021004123', email: 'karan@gmail.com', phone_number: '9876543219', status_approval: 'pending' }
+      ];
+
+      const pendingMap = new Map();
+      defaultPending.forEach(p => pendingMap.set(p.email || p.id, p));
+      allDrivers.filter(d => d.status_approval === 'pending').forEach(d => pendingMap.set(d.email || d.id, d));
+      // Remove any that were approved in hyd_demo_users
+      registeredUsers.forEach(u => {
+        if (u.status_approval === 'approved' && pendingMap.has(u.email || u.id)) {
+          pendingMap.delete(u.email || u.id);
+        }
+      });
+      const dynamicPendingDrivers = Array.from(pendingMap.values());
+
+      setPendingDrivers(dynamicPendingDrivers);
+
+      const approvedDriversCount = 24 + allDrivers.filter(d => d.status_approval === 'approved').length;
+      const totalUsersCount = 148 + registeredUsers.length;
+
+      setStats(prev => ({
+        ...prev,
+        totalUsers: totalUsersCount,
+        activeDrivers: approvedDriversCount,
+        driverApprovalsPending: dynamicPendingDrivers.length,
+        totalBookings: Math.max(prev?.totalBookings || 312, 310 + bookingsList.length),
+        totalRevenue: totalPlatformRev,
+        adminRevenue: adminRevBalance,
+        upcomingBookings: upcoming,
+        startedBookings: started,
+        completedBookings: Math.max(305, completed),
+        cancelledBookings: cancelled
+      }));
+
+      const defaultAdminNotifications = [
+        { id: 301, role: 'admin', title: 'New Driver Registration', message: 'Driver Karan Mehta submitted Commercial Driving License & ID proof for verification.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 12).toISOString() },
+        { id: 302, role: 'admin', title: 'Revenue Milestone', message: 'Bengaluru metropolitan revenue crossed $28,450.00 (18% above weekly target).', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 50).toISOString() },
+        { id: 303, role: 'admin', title: 'Fleet Telematics Active', message: 'All 24 active driver telematics streams and emergency dispatch channels online.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 140).toISOString() },
+        { id: 304, role: 'admin', title: 'Surge Demand Detected', message: 'High booking volume detected around Indiranagar & Whitefield tech corridor.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 260).toISOString() },
+        { id: 305, role: 'admin', title: 'Campaign Broadcast', message: 'Weekend promo campaign "Summer Festival 50%" delivered to all active clients.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 500).toISOString() }
+      ];
+
+      const storedNotifs = localStorage.getItem('hyd_demo_notifications_admin');
+      if (storedNotifs) {
+        const parsed = JSON.parse(storedNotifs);
+        setNotifications(Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultAdminNotifications);
+      } else {
+        setNotifications(defaultAdminNotifications);
       }
     } catch (err) {
-      console.error('Admin dashboard fetch error:', err);
+      console.error('Admin dashboard local error:', err);
     }
   };
 
   useEffect(() => {
     fetchAll();
-    const interval = setInterval(fetchAll, 15000);
     window.addEventListener('storage', fetchAll);
     return () => {
-      clearInterval(interval);
       window.removeEventListener('storage', fetchAll);
     };
   }, []);
 
-  const handleMarkRead = async (id) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/notifications/${id}/read`, { method: 'PATCH' });
-      if (res.ok) {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
-        window.dispatchEvent(new Event('storage'));
-      }
-    } catch (err) { console.error(err); }
+  const handleMarkRead = (id) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, is_read: 1 } : n);
+      try {
+        localStorage.setItem('hyd_demo_notifications_admin', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    window.dispatchEvent(new Event('storage'));
   };
 
-  const handleQuickApprove = async (id, name) => {
+  const handleQuickApprove = (id, name) => {
+    showAlert(`Driver ${name} approved successfully!`, 'success');
+    setPendingDrivers(prev => prev.filter(d => d.id !== id));
+    setStats(prev => ({
+      ...prev,
+      activeDrivers: prev.activeDrivers + 1,
+      driverApprovalsPending: Math.max(0, prev.driverApprovalsPending - 1)
+    }));
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/drivers/${id}/approve`, { method: 'PATCH' });
-      if (res.ok) {
-        showAlert(`Driver ${name} approved!`, 'success');
-        setPendingDrivers(prev => prev.filter(d => d.id !== id));
-        fetchAll();
+      const stored = localStorage.getItem('hyd_demo_users');
+      let allUsers = stored ? JSON.parse(stored) : [];
+      const idx = allUsers.findIndex(u => u.id === id || `${u.first_name || u.firstName} ${u.last_name || u.lastName}`.trim() === name.trim());
+      if (idx >= 0) {
+        allUsers[idx] = { ...allUsers[idx], status_approval: 'approved' };
+      } else {
+        allUsers.push({ id, first_name: name, status_approval: 'approved', role: 'driver' });
       }
-    } catch (err) { showAlert('Failed to approve', 'error'); }
+      localStorage.setItem('hyd_demo_users', JSON.stringify(allUsers));
+
+      // Push notification to driver
+      const rawNotifs = localStorage.getItem('hyd_demo_notifications_driver');
+      const driverNotifs = rawNotifs ? JSON.parse(rawNotifs) : [];
+      driverNotifs.unshift({
+        id: Date.now(),
+        role: 'driver',
+        title: 'Account Approved by Admin',
+        message: `Congratulations ${name}! Admin has approved your driver credentials. You can now toggle On Duty to receive client rides.`,
+        is_read: 0,
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem('hyd_demo_notifications_driver', JSON.stringify(driverNotifs));
+
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
   };
 
   const getStatusColor = (status) => {
@@ -128,7 +255,7 @@ const AdminDashboard = () => {
           </div>
           <div className="admin-hero-info">
             <span className="admin-hero-label">Commission Earned</span>
-            <span className="admin-hero-value">${Number(stats.adminRevenue).toFixed(2)}</span>
+            <span className="admin-hero-value">₹{Number(stats?.adminRevenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           <ArrowUpRight size={16} className="admin-hero-arrow" />
         </div>

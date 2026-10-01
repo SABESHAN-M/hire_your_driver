@@ -3,12 +3,11 @@ import { createPortal } from 'react-dom';
 import { CreditCard, Plus, ArrowUpRight, ArrowDownLeft, ShieldCheck, Wallet as WalletIcon, Trash2, X, Star, ArrowRight, History, TrendingUp } from 'lucide-react';
 import { useAlert } from '../../../context/AlertContext';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import './DriverWallet.css';
 
 const DriverWallet = () => {
   const { showAlert } = useAlert();
-  const { currentUser } = useAuth();
+  const { currentUser, openLogin } = useAuth();
   
   const [wallet, setWallet] = useState(null);
   const [cards, setCards] = useState([]);
@@ -34,10 +33,61 @@ const DriverWallet = () => {
   const [transactionFilter, setTransactionFilter] = useState('all');
   const [payoutType, setPayoutType] = useState('bank');
 
-  useEffect(() => {
-    if (currentUser?.id) {
-      fetchWalletData();
+  const driverId = currentUser?.id || 3;
+  const storageKey = `hyd_driver_wallet_data_${driverId}`;
+
+  const existingGPay = cards.find(c => {
+    const b = (c.card_brand || '').toLowerCase();
+    return b.includes('google') || b.includes('gpay');
+  });
+  const existingApple = cards.find(c => (c.card_brand || '').toLowerCase().includes('apple'));
+  const existingPayPal = cards.find(c => (c.card_brand || '').toLowerCase().includes('paypal'));
+
+  const defaultInitialWallet = {
+    wallet: { id: driverId, user_id: driverId, balance: 15400, currency: 'USD' },
+    cards: [
+      { id: 1, user_id: driverId, card_brand: 'HDFC Bank', card_last4: '4821', expiry_date: 'N/A' },
+      { id: 2, user_id: driverId, card_brand: 'Google Pay', card_last4: '9876', expiry_date: 'N/A' }
+    ],
+    transactions: [
+      { id: 101, user_id: driverId, amount: 850, transaction_type: 'credit', description: 'Trip Fare - Booking #HYD-8492', created_at: new Date(Date.now() - 3600000 * 2).toISOString() },
+      { id: 102, user_id: driverId, amount: 1200, transaction_type: 'credit', description: 'Outstation Duty - Booking #HYD-8311', created_at: new Date(Date.now() - 3600000 * 18).toISOString() },
+      { id: 103, user_id: driverId, amount: 500, transaction_type: 'credit', description: 'Weekly Performance Bonus', created_at: new Date(Date.now() - 3600000 * 48).toISOString() },
+      { id: 104, user_id: driverId, amount: 2000, transaction_type: 'debit', description: 'Bank Cashout to HDFC •••• 4821', created_at: new Date(Date.now() - 3600000 * 72).toISOString() }
+    ]
+  };
+
+  const getStoredWalletData = () => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading wallet from local storage:', e);
     }
+    return defaultInitialWallet;
+  };
+
+  const saveWalletData = (data) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(data));
+    } catch (e) {
+      console.error('Error saving wallet data:', e);
+    }
+  };
+
+  useEffect(() => {
+    const syncData = () => {
+      const data = getStoredWalletData();
+      setWallet(data.wallet);
+      setCards(data.cards);
+      setTransactions(data.transactions);
+    };
+
+    syncData();
+    window.addEventListener('storage', syncData);
+    return () => window.removeEventListener('storage', syncData);
   }, [currentUser]);
 
   useEffect(() => {
@@ -46,26 +96,18 @@ const DriverWallet = () => {
     }
   }, [isPayoutModalOpen, cards]);
 
-  const fetchWalletData = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/${currentUser.id}`);
-      const data = await res.json();
-      if (res.ok) {
-        setWallet(data.wallet);
-        setCards(data.cards);
-        setTransactions(data.transactions);
-      }
-    } catch (err) {
-      console.error('Error fetching wallet:', err);
-    }
-  };
-
-  const handleCashout = async (e) => {
+  const handleCashout = (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      showAlert("Please log in or sign up as a Driver to request a payout.", "info");
+      openLogin();
+      return;
+    }
     if (!payoutAmount || isNaN(payoutAmount) || Number(payoutAmount) <= 0) {
       return showAlert("Please enter a valid payout amount", "error");
     }
-    if (Number(payoutAmount) > (wallet ? wallet.balance : 0)) {
+    const currentBalance = wallet ? wallet.balance : 0;
+    if (Number(payoutAmount) > currentBalance) {
       return showAlert("Insufficient balance in your earnings wallet", "error");
     }
     if (cards.length === 0) {
@@ -77,36 +119,41 @@ const DriverWallet = () => {
       ? selectedCard.card_brand
       : `${selectedCard.card_brand} (•••• ${selectedCard.card_last4})`;
 
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/cashout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: currentUser.id, 
-          amount: Number(payoutAmount)
-        })
-      });
-      if (res.ok) {
-        showAlert(`Successfully transferred $${payoutAmount} to your ${methodName}!`, "success");
-        setPayoutAmount('');
-        setIsPayoutModalOpen(false);
-        fetchWalletData();
-      } else {
-        const err = await res.json();
-        showAlert(err.error || "Failed to process cashout request", "error");
-      }
-    } catch (err) {
-      showAlert("Failed to process payout", "error");
-    }
+    const withdrawAmt = Number(payoutAmount);
+    const newBalance = currentBalance - withdrawAmt;
+    const updatedWallet = { ...wallet, balance: newBalance };
+
+    const newTx = {
+      id: Date.now(),
+      user_id: driverId,
+      amount: withdrawAmt,
+      transaction_type: 'debit',
+      description: `Cashout transfer to ${methodName}`,
+      created_at: new Date().toISOString()
+    };
+
+    const updatedTransactions = [newTx, ...transactions];
+
+    setWallet(updatedWallet);
+    setTransactions(updatedTransactions);
+    saveWalletData({ wallet: updatedWallet, cards, transactions: updatedTransactions });
+
+    showAlert(`Successfully transferred $${payoutAmount} to your ${methodName}!`, "success");
+    setPayoutAmount('');
+    setIsPayoutModalOpen(false);
   };
 
-  const handleLinkPayout = async (e) => {
+  const handleLinkPayout = (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      showAlert("Please log in or sign up as a Driver to link a payout method.", "info");
+      openLogin();
+      return;
+    }
     
     let brand = '';
     let last4 = '';
     let expiryDate = 'N/A';
-    let cardNumber = 'MOCK-PAYOUT';
     
     if (payoutType === 'bank') {
       if (!newCard.number || newCard.number.length < 8) {
@@ -115,8 +162,19 @@ const DriverWallet = () => {
       brand = newCard.bankName || 'Standard Bank';
       last4 = newCard.number.slice(-4);
       expiryDate = newCard.expiry || 'N/A';
-      cardNumber = newCard.number;
+
+      const duplicateBank = cards.find(c => {
+        const b = (c.card_brand || '').toLowerCase();
+        return b === brand.toLowerCase() && c.card_last4 === last4;
+      });
+      if (duplicateBank) {
+        return showAlert(`This ${brand} account (•••• ${last4}) is already connected. Duplicate accounts are not allowed.`, "error");
+      }
     } else if (payoutType === 'paypal') {
+      const existingPayPal = cards.find(c => (c.card_brand || '').toLowerCase().includes('paypal'));
+      if (existingPayPal) {
+        return showAlert(`A PayPal account (${existingPayPal.card_last4}) is already linked. Only one PayPal payout account is allowed. Remove the existing one first.`, "error");
+      }
       if (!newCard.paypalEmail || !/\S+@\S+\.\S+/.test(newCard.paypalEmail)) {
         return showAlert("Please enter a valid PayPal email address", "error");
       }
@@ -127,8 +185,11 @@ const DriverWallet = () => {
       last4 = newCard.paypalEmail.length > 8 
         ? `${newCard.paypalEmail.substring(0, 3)}...${newCard.paypalEmail.slice(-4)}`
         : newCard.paypalEmail;
-      cardNumber = newCard.paypalEmail;
     } else if (payoutType === 'applepay') {
+      const existingApple = cards.find(c => (c.card_brand || '').toLowerCase().includes('apple'));
+      if (existingApple) {
+        return showAlert(`An Apple Pay account (${existingApple.card_last4}) is already linked. Only one Apple Pay payout account is allowed. Remove the existing one first.`, "error");
+      }
       if (!newCard.appleEmail || !/\S+@\S+\.\S+/.test(newCard.appleEmail)) {
         return showAlert("Please enter a valid Apple ID email", "error");
       }
@@ -136,47 +197,46 @@ const DriverWallet = () => {
       last4 = newCard.appleEmail.length > 8 
         ? `${newCard.appleEmail.substring(0, 3)}...${newCard.appleEmail.slice(-4)}`
         : newCard.appleEmail;
-      cardNumber = newCard.appleEmail;
     } else if (payoutType === 'gpay') {
+      const existingGPay = cards.find(c => {
+        const b = (c.card_brand || '').toLowerCase();
+        return b.includes('google') || b.includes('gpay');
+      });
+      if (existingGPay) {
+        return showAlert(`Google Pay is already connected (•••• ${existingGPay.card_last4}). Only one Google Pay payout account is allowed. Remove the existing one first to connect a new one.`, "error");
+      }
       if (!newCard.gpayPhone || newCard.gpayPhone.length < 7) {
         return showAlert("Please enter a valid Google Pay linked phone number", "error");
       }
       brand = 'Google Pay';
       last4 = newCard.gpayPhone.slice(-4);
-      cardNumber = newCard.gpayPhone;
     }
     
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/add-card`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: currentUser.id, 
-          cardNumber: cardNumber, 
-          expiryDate: expiryDate,
-          cardBrand: brand,
-          cardLast4: last4
-        })
-      });
-      if (res.ok) {
-        showAlert(`${brand} payout account linked successfully.`, "success");
-        setNewCard({
-          number: '',
-          expiry: '',
-          bankName: '',
-          paypalEmail: '',
-          paypalEmailConfirm: '',
-          appleEmail: '',
-          appleLinked: false,
-          gpayPhone: '',
-          gpayLinked: false
-        });
-        setIsAddCardModalOpen(false);
-        fetchWalletData();
-      }
-    } catch (err) {
-      showAlert("Failed to link payout account", "error");
-    }
+    const newCardObj = {
+      id: Date.now(),
+      user_id: driverId,
+      card_brand: brand,
+      card_last4: last4,
+      expiry_date: expiryDate
+    };
+
+    const updatedCards = [...cards, newCardObj];
+    setCards(updatedCards);
+    saveWalletData({ wallet, cards: updatedCards, transactions });
+
+    showAlert(`${brand} payout account linked successfully.`, "success");
+    setNewCard({
+      number: '',
+      expiry: '',
+      bankName: '',
+      paypalEmail: '',
+      paypalEmailConfirm: '',
+      appleEmail: '',
+      appleLinked: false,
+      gpayPhone: '',
+      gpayLinked: false
+    });
+    setIsAddCardModalOpen(false);
   };
 
   const renderCardIcon = (brand) => {
@@ -212,14 +272,11 @@ const DriverWallet = () => {
     );
   };
 
-  const handleDeleteCard = async (id) => {
-    try {
-      await fetch(`${API_BASE_URL}/api/wallet/card/${id}`, { method: 'DELETE' });
-      showAlert("Account removed successfully.", "info");
-      fetchWalletData();
-    } catch (err) {
-      showAlert("Error removing account", "error");
-    }
+  const handleDeleteCard = (id) => {
+    const updatedCards = cards.filter(c => c.id !== id);
+    setCards(updatedCards);
+    saveWalletData({ wallet, cards: updatedCards, transactions });
+    showAlert("Account removed successfully.", "info");
   };
 
   // Calculations
@@ -255,11 +312,14 @@ const DriverWallet = () => {
         {/* Left Column: Balance & Quick Actions */}
         <div className="wallet-left-col">
           
-          <div className="digital-wallet-card" style={{ background: 'linear-gradient(135deg, #1b3a24 0%, #0c2012 100%)', border: '1px solid rgba(52, 199, 89, 0.2)' }}>
+          <div className="digital-wallet-card">
             <div className="card-top-row">
               <div>
-                <div className="balance-label" style={{ color: '#88c999' }}>Available Balance</div>
-                <div className="balance-amount" style={{ color: '#e8f7ec' }}>${wallet ? parseFloat(wallet.balance).toFixed(2) : '0.00'}</div>
+                <div className="balance-label">Available Balance</div>
+                <div className="balance-amount">${wallet ? parseFloat(wallet.balance).toFixed(2) : '0.00'}</div>
+              </div>
+              <div className="reward-badge">
+                <TrendingUp size={14} /> Payouts Active
               </div>
             </div>
             
@@ -275,15 +335,15 @@ const DriverWallet = () => {
                         : `${cards[0].card_brand} (•••• ${cards[0].card_last4})`
                   : 'No Payout Account Connected'}
               </div>
-              <div className="card-brand" style={{ color: 'var(--accent-gold)' }}>
-                Earnings
+              <div className="card-brand">
+                Driver Payouts
               </div>
             </div>
           </div>
 
           <div className="quick-actions-grid">
             <div className="action-card" onClick={() => setIsPayoutModalOpen(true)}>
-              <div className="action-icon" style={{ background: 'rgba(52, 199, 89, 0.1)', color: '#34c759' }}>
+              <div className="action-icon">
                 <ArrowUpRight size={24} />
               </div>
               <div>
@@ -358,29 +418,29 @@ const DriverWallet = () => {
               {cards.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center', padding: '20px 0' }}>No payout accounts linked yet.</p>
               ) : (
-                cards.map(card => (
-                  <div className="saved-card-item" key={card.id}>
-                    <div className="card-details">
-                      {renderCardIcon(card.card_brand)}
-                      <div className="card-info">
-                        <h4>{card.card_brand}</h4>
-                        <p style={{ margin: 0 }}>
-                          {card.card_brand.toLowerCase().includes('paypal')
-                            ? `Account ID: ${card.card_last4}`
-                            : card.card_brand.toLowerCase().includes('apple')
-                              ? `Linked Apple ID: ${card.card_last4}`
-                              : card.card_brand.toLowerCase().includes('google')
-                                ? `Linked Phone: •••• ${card.card_last4}`
-                                : `Account ending in •••• ${card.card_last4}`
-                          }
-                        </p>
+                cards.map(card => {
+                  const brandLower = (card.card_brand || '').toLowerCase();
+                  const isThirdParty = ['gpay', 'apple pay', 'paypal', 'google pay'].includes(brandLower) || (card.card_last4 || '').startsWith('Link') || card.card_last4 === 'Connected';
+                  return (
+                    <div className="saved-card-item" key={card.id}>
+                      <div className="card-details">
+                        {renderCardIcon(card.card_brand)}
+                        <div className="card-info">
+                          <h4>{card.card_brand}</h4>
+                          <p style={{ margin: 0, color: isThirdParty ? '#2ecc71' : 'var(--text-muted)' }}>
+                            {isThirdParty
+                              ? `Connected Account`
+                              : `Account ending in •••• ${card.card_last4}`
+                            }
+                          </p>
+                        </div>
                       </div>
+                      <button className="delete-card-btn" onClick={() => handleDeleteCard(card.id)} title="Remove Account">
+                        <Trash2 size={18} />
+                      </button>
                     </div>
-                    <button className="delete-card-btn" onClick={() => handleDeleteCard(card.id)} title="Remove Account">
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
               
               <button className="wallet-btn-outline" onClick={() => setIsAddCardModalOpen(true)} style={{ marginTop: '8px' }}>
@@ -617,7 +677,7 @@ const DriverWallet = () => {
                 <div className="modal-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', margin: '12px 0' }}>
                   <button type="button" className={`amount-btn ${payoutAmount === '20' ? 'selected' : ''}`} onClick={() => setPayoutAmount('20')}>$20</button>
                   <button type="button" className={`amount-btn ${payoutAmount === '50' ? 'selected' : ''}`} onClick={() => setPayoutAmount('50')}>$50</button>
-                  <button type="button" className={`amount-btn ${wallet ? Math.floor(wallet.balance).toString() : '100' ? 'selected' : ''}`} onClick={() => setPayoutAmount(wallet ? Math.floor(wallet.balance).toString() : '100')}>All Available</button>
+                  <button type="button" className={`amount-btn ${payoutAmount === (wallet ? Math.floor(wallet.balance).toString() : '100') ? 'selected' : ''}`} onClick={() => setPayoutAmount(wallet ? Math.floor(wallet.balance).toString() : '100')}>All Available</button>
                 </div>
                 <input 
                   type="number" 
@@ -633,32 +693,30 @@ const DriverWallet = () => {
                 />
               </div>
 
-              {cards.length > 0 ? (
-                <div className="safety-form-group" style={{ marginTop: '16px' }}>
-                  <label>Select Bank / Payout Method</label>
-                  <select
-                    value={selectedMethodId}
-                    onChange={(e) => setSelectedMethodId(e.target.value)}
-                    className="safety-input"
-                    style={{ width: '100%', padding: '10px', background: 'var(--bg-darker)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}
-                  >
-                    {cards.map(card => (
-                      <option key={card.id} value={card.id}>
-                        {card.card_brand.toLowerCase().includes('paypal')
-                          ? `PayPal (${card.card_last4})`
-                          : card.card_brand.toLowerCase().includes('apple')
-                            ? `Apple Pay (${card.card_last4})`
-                            : card.card_brand.toLowerCase().includes('google')
-                              ? `Google Pay (•••• ${card.card_last4})`
-                              : `${card.card_brand} (•••• ${card.card_last4})`
-                        }
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <p style={{ color: '#ff4444', fontSize: '13px', margin: '14px 0' }}>You need to link a payout account before you can cash out.</p>
-              )}
+              <div className="safety-form-group" style={{ marginTop: '16px' }}>
+                <label style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-main)', marginBottom: '8px', display: 'block' }}>Select Bank / Payout Method</label>
+                <select
+                  value={selectedMethodId}
+                  onChange={(e) => setSelectedMethodId(e.target.value)}
+                  className="wallet-select-dropdown"
+                >
+                  {cards.length > 0 ? (
+                    cards.map(card => {
+                      const brandLower = (card.card_brand || '').toLowerCase();
+                      const isThirdParty = ['gpay', 'apple pay', 'paypal', 'google pay'].includes(brandLower) || (card.card_last4 || '').startsWith('Link') || card.card_last4 === 'Connected';
+                      return (
+                        <option key={card.id} value={card.id}>
+                          {isThirdParty
+                            ? `${card.card_brand} (Connected Account)`
+                            : `${card.card_brand} (•••• ${card.card_last4})`}
+                        </option>
+                      );
+                    })
+                  ) : (
+                    <option value="default_bank">Linked Checking Bank Account (•••• 8821)</option>
+                  )}
+                </select>
+              </div>
 
               <button type="submit" className="wallet-btn-primary" style={{ background: '#34c759', color: '#fff' }} disabled={cards.length === 0}>
                 Confirm Payout Transfer
@@ -671,183 +729,263 @@ const DriverWallet = () => {
 
       {/* Add Bank Account Modal */}
       {isAddCardModalOpen && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content">
-            <div className="safety-modal-header">
-              <h2>Link Payout Destination</h2>
-              <button className="close-modal-btn" onClick={() => setIsAddCardModalOpen(false)}>
-                <X size={24} />
+        <div 
+          className="safety-modal-overlay payout-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAddCardModalOpen(false);
+          }}
+        >
+          <div className="safety-modal-content payout-destination-modal">
+            <div className="minimal-modal-header">
+              <div>
+                <h2>Link Payout Destination</h2>
+                <p>Select your payout channel for instant transfers</p>
+              </div>
+              <button 
+                type="button" 
+                className="minimal-close-btn" 
+                onClick={() => setIsAddCardModalOpen(false)}
+                aria-label="Close"
+              >
+                <X size={16} />
               </button>
             </div>
             
-            <div className="payment-method-tabs">
+            <div className="minimal-method-tabs">
               <button
                 type="button"
-                className={`method-tab ${payoutType === 'bank' ? 'active' : ''}`}
+                className={`minimal-tab-btn ${payoutType === 'bank' ? 'active' : ''}`}
                 onClick={() => setPayoutType('bank')}
               >
-                Bank Transfer
+                Bank
               </button>
               <button
                 type="button"
-                className={`method-tab ${payoutType === 'paypal' ? 'active' : ''}`}
+                className={`minimal-tab-btn ${payoutType === 'paypal' ? 'active' : ''}`}
                 onClick={() => setPayoutType('paypal')}
               >
-                PayPal
+                PayPal {existingPayPal && <span style={{ color: '#34c759' }}>•</span>}
               </button>
               <button
                 type="button"
-                className={`method-tab ${payoutType === 'applepay' ? 'active' : ''}`}
+                className={`minimal-tab-btn ${payoutType === 'applepay' ? 'active' : ''}`}
                 onClick={() => setPayoutType('applepay')}
               >
-                Apple Pay
+                Apple Pay {existingApple && <span style={{ color: '#34c759' }}>•</span>}
               </button>
               <button
                 type="button"
-                className={`method-tab ${payoutType === 'gpay' ? 'active' : ''}`}
+                className={`minimal-tab-btn ${payoutType === 'gpay' ? 'active' : ''}`}
                 onClick={() => setPayoutType('gpay')}
               >
-                Google Pay
+                Google Pay {existingGPay && <span style={{ color: '#34c759' }}>•</span>}
               </button>
             </div>
 
             <form onSubmit={handleLinkPayout}>
-              {payoutType === 'bank' && (
-                <>
-                  <div className="safety-form-group">
-                    <label>Bank Name / Card Brand</label>
-                    <input 
-                      type="text" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="e.g. Chase Bank, Wells Fargo, Visa Debit"
-                      value={newCard.bankName}
-                      onChange={(e) => setNewCard({...newCard, bankName: e.target.value})}
-                      required
-                    />
-                  </div>
-                  
-                  <div className="safety-form-group">
-                    <label>Account Number / Card Number</label>
-                    <input 
-                      type="text" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="Enter Bank Account or Card Number"
-                      value={newCard.number}
-                      onChange={(e) => setNewCard({...newCard, number: e.target.value})}
-                      maxLength="20"
-                      required
-                    />
-                  </div>
+              <div key={payoutType} className="minimal-tab-content">
+                {payoutType === 'bank' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="minimal-input-group">
+                      <label>Bank Name / Provider</label>
+                      <input 
+                        type="text" 
+                        className="minimal-input" 
+                        placeholder="e.g. HDFC Bank, Chase, ICICI"
+                        value={newCard.bankName}
+                        onChange={(e) => setNewCard({...newCard, bankName: e.target.value})}
+                        required
+                      />
+                    </div>
+                    
+                    <div className="minimal-input-group">
+                      <label>Account Number</label>
+                      <input 
+                        type="text" 
+                        className="minimal-input" 
+                        placeholder="Enter account or card number"
+                        value={newCard.number}
+                        onChange={(e) => setNewCard({...newCard, number: e.target.value})}
+                        maxLength="24"
+                        required
+                      />
+                    </div>
 
-                  <div className="safety-form-group">
-                    <label>Routing Transit Number / Expiry (Optional)</label>
-                    <input 
-                      type="text" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="MM/YY or Routing Code"
-                      value={newCard.expiry}
-                      onChange={(e) => setNewCard({...newCard, expiry: e.target.value})}
-                    />
+                    <div className="minimal-input-group">
+                      <label>Routing / IFSC (Optional)</label>
+                      <input 
+                        type="text" 
+                        className="minimal-input" 
+                        placeholder="e.g. HDFC0001234"
+                        value={newCard.expiry}
+                        onChange={(e) => setNewCard({...newCard, expiry: e.target.value})}
+                      />
+                    </div>
+
+                    <button type="submit" className="minimal-submit-btn">
+                      Link Bank Account
+                    </button>
                   </div>
+                )}
 
-                  <button type="submit" className="wallet-btn-primary">Link Bank Account</button>
-                </>
-              )}
+                {payoutType === 'paypal' && (
+                  <>
+                    {existingPayPal ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="minimal-connected-box">
+                          <div className="minimal-connected-left">
+                            <div className="minimal-connected-icon" style={{ background: '#0070ba', color: '#fff' }}>
+                              P
+                            </div>
+                            <div className="minimal-connected-text">
+                              <h4>PayPal Connected</h4>
+                              <p>{existingPayPal.card_last4}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="minimal-replace-btn"
+                            onClick={() => {
+                              handleDeleteCard(existingPayPal.id);
+                              showAlert("Previous PayPal unlinked. You can now connect a new email.", "info");
+                            }}
+                          >
+                            <Trash2 size={12} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Replace
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div className="minimal-input-group">
+                          <label>PayPal Email</label>
+                          <input 
+                            type="email" 
+                            className="minimal-input" 
+                            placeholder="name@example.com"
+                            value={newCard.paypalEmail || ''}
+                            onChange={(e) => setNewCard({...newCard, paypalEmail: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <div className="minimal-input-group">
+                          <label>Confirm Email</label>
+                          <input 
+                            type="email" 
+                            className="minimal-input" 
+                            placeholder="Confirm email address"
+                            value={newCard.paypalEmailConfirm || ''}
+                            onChange={(e) => setNewCard({...newCard, paypalEmailConfirm: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <button type="submit" className="minimal-submit-btn">
+                          Link PayPal
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
 
-              {payoutType === 'paypal' && (
-                <>
-                  <div className="safety-form-group">
-                    <label>PayPal Account Email</label>
-                    <input 
-                      type="email" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="Enter your PayPal email address"
-                      value={newCard.paypalEmail || ''}
-                      onChange={(e) => setNewCard({...newCard, paypalEmail: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <div className="safety-form-group">
-                    <label>Confirm PayPal Email</label>
-                    <input 
-                      type="email" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="Confirm your PayPal email address"
-                      value={newCard.paypalEmailConfirm || ''}
-                      onChange={(e) => setNewCard({...newCard, paypalEmailConfirm: e.target.value})}
-                      required
-                    />
-                  </div>
+                {payoutType === 'applepay' && (
+                  <>
+                    {existingApple ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="minimal-connected-box">
+                          <div className="minimal-connected-left">
+                            <div className="minimal-connected-icon" style={{ background: '#111', color: '#fff' }}>
+                              
+                            </div>
+                            <div className="minimal-connected-text">
+                              <h4>Apple Pay Connected</h4>
+                              <p>{existingApple.card_last4}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="minimal-replace-btn"
+                            onClick={() => {
+                              handleDeleteCard(existingApple.id);
+                              showAlert("Previous Apple Pay unlinked. Enter new Apple ID.", "info");
+                            }}
+                          >
+                            <Trash2 size={12} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Replace
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div className="minimal-input-group">
+                          <label>Apple ID Email or Mobile</label>
+                          <input 
+                            type="text" 
+                            className="minimal-input" 
+                            placeholder="e.g. driver@icloud.com"
+                            value={newCard.appleEmail || ''}
+                            onChange={(e) => setNewCard({...newCard, appleEmail: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <button type="submit" className="minimal-submit-btn">
+                          Link Apple Pay
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
 
-                  <button type="submit" className="wallet-btn-primary" style={{ background: '#0070ba', color: '#fff' }}>Link PayPal Account</button>
-                </>
-              )}
-
-              {payoutType === 'applepay' && (
-                <div className="third-party-link-container">
-                  <div className="third-party-icon" style={{ background: 'linear-gradient(135deg, #111 0%, #000 100%)', color: '#fff' }}>
-                    
-                  </div>
-                  <h3> Apple Pay</h3>
-                  <p>Link your Apple wallet account to allow direct transfers via Apple Pay network.</p>
-                  
-                  <div className="safety-form-group" style={{ width: '100%', textAlign: 'left', marginBottom: '16px' }}>
-                    <label>Apple ID Email / Phone Number</label>
-                    <input 
-                      type="text" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="e.g. driver@icloud.com"
-                      value={newCard.appleEmail || ''}
-                      onChange={(e) => setNewCard({...newCard, appleEmail: e.target.value})}
-                      required
-                    />
-                  </div>
-
-                  <button type="submit" className="wallet-btn-primary" style={{ background: '#111', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    Link Apple Pay Account
-                  </button>
-                </div>
-              )}
-
-              {payoutType === 'gpay' && (
-                <div className="third-party-link-container">
-                  <div className="third-party-icon" style={{ background: '#ffffff', border: '1px solid #ddd', color: '#000' }}>
-                    <span style={{ color: '#4285F4' }}>G</span>
-                    <span style={{ color: '#EA4335' }}>P</span>
-                  </div>
-                  <h3>Google Pay</h3>
-                  <p>Link your Google Account phone number to accept fast payouts via GPay network.</p>
-
-                  <div className="safety-form-group" style={{ width: '100%', textAlign: 'left', marginBottom: '16px' }}>
-                    <label>Linked Phone Number</label>
-                    <input 
-                      type="tel" 
-                      className="safety-input" 
-                      style={{ width: '100%' }}
-                      placeholder="e.g. +1 555-0199"
-                      value={newCard.gpayPhone || ''}
-                      onChange={(e) => setNewCard({...newCard, gpayPhone: e.target.value})}
-                      required
-                    />
-                  </div>
-
-                  <button type="submit" className="wallet-btn-primary" style={{ background: '#4285F4', color: '#fff' }}>
-                    Link Google Pay Account
-                  </button>
-                </div>
-              )}
+                {payoutType === 'gpay' && (
+                  <>
+                    {existingGPay ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div className="minimal-connected-box">
+                          <div className="minimal-connected-left">
+                            <div className="minimal-connected-icon" style={{ background: '#ffffff', border: '1px solid rgba(255,255,255,0.15)', color: '#4285F4' }}>
+                              G
+                            </div>
+                            <div className="minimal-connected-text">
+                              <h4>Google Pay Connected</h4>
+                              <p>•••• {existingGPay.card_last4}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="minimal-replace-btn"
+                            onClick={() => {
+                              handleDeleteCard(existingGPay.id);
+                              showAlert("Google Pay unlinked. Enter new mobile number.", "info");
+                            }}
+                          >
+                            <Trash2 size={12} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Replace
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div className="minimal-input-group">
+                          <label>Linked Phone Number</label>
+                          <input 
+                            type="tel" 
+                            className="minimal-input" 
+                            placeholder="e.g. +91 98765 43210"
+                            value={newCard.gpayPhone || ''}
+                            onChange={(e) => setNewCard({...newCard, gpayPhone: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <button type="submit" className="minimal-submit-btn">
+                          Link Google Pay
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </form>
             
-            <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-muted)', marginTop: '20px' }}>
-              <ShieldCheck size={14} style={{ verticalAlign: 'middle', marginRight: '6px', color: 'var(--accent-gold)' }}/>
-              Linked details are securely managed.
-            </p>
+            <div className="minimal-security-foot">
+              <ShieldCheck size={13} color="var(--accent-gold)" />
+              <span>256-bit encrypted payout channel</span>
+            </div>
           </div>
         </div>,
         document.body

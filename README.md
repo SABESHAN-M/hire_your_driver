@@ -1,16 +1,23 @@
-# React + Vite
+# Hire Your Driver — Web Application Platform
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, responsive, client-side web application for online driver hiring. Designed for seamless interactive demonstration with automated mock state persistence and zero server dependencies.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **⚡ Client-Side Engine**: Runs entirely in the browser using high-performance `localStorage` data persistence and a global `mockFetch` interceptor.
+- **🚗 Client Portal**: Create bookings, select pickup/destination, pick vehicle models and transmission types, track live driver status, manage wallet, saved cards, and emergency safety contacts.
+- **🚕 Driver Portal**: Toggle online/offline duty status, view live ride requests, accept bookings, verify trip OTPs, track daily/monthly earnings, and manage document verifications.
+- **🛡️ Admin Portal**: System dashboard stats, driver document approval workflow, user management, booking history, revenue analytics, and interactive mock database viewer.
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# Install dependencies
+npm install
 
-## Expanding the ESLint configuration
+# Start development server
+npm run dev
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# Build for production deployment
+npm run build
+```

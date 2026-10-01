@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Clock, CreditCard, ShieldCheck, Car, Calendar, ChevronRight, X } from 'lucide-react';
+import { MapPin, Clock, CreditCard, ShieldCheck, Car, Calendar, ChevronRight, X, Ticket, Copy, Check } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import { useAlert } from '../../../context/AlertContext';
 import './ClientDashboard.css';
 import './ClientSafetyCenter.css';
@@ -24,31 +23,110 @@ const ClientDashboard = () => {
   const [wallet, setWallet] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [showLowBalanceModal, setShowLowBalanceModal] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(null);
+
+  const extractPromoCode = (item) => {
+    if (!item) return null;
+    if (item.promo_code) return item.promo_code.trim();
+    const text = `${item.title || ''} ${item.message || ''}`;
+    const match = text.match(/(?:promo\s+code|discount\s+code|\bcode\b)\s*[:\-]?\s*['"]?([A-Za-z0-9\-_]{4,16})['"]?/i);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (!['STATUS', 'POSTAL', 'PASSCODE', 'NUMBER', 'ERROR', 'HTTP'].includes(candidate.toUpperCase())) {
+        return candidate.toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const handleCopyCode = (code, e) => {
+    if (e) e.stopPropagation();
+    if (!code) return;
+    try {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      showAlert(`Promo code "${code}" copied to clipboard!`, 'success');
+      setTimeout(() => setCopiedCode(null), 2500);
+    } catch (err) {
+      showAlert(`Code: ${code}`, 'info');
+    }
+  };
+
+  const defaultBookings = [
+    {
+      id: 1,
+      booking_reference: 'HYD-7102',
+      pickup_location: 'Indiranagar 100ft Road, Bengaluru',
+      dropoff_location: 'Kempegowda Int. Airport (BLR)',
+      status: 'assigned',
+      booking_date: new Date().toISOString(),
+      pickup_time: '14:30',
+      car_type: 'Sedan (Honda City)',
+      estimated_fare: 850,
+      driver_name: 'Rajesh Kumar',
+      driver_phone: '+91 98765 43212'
+    },
+    {
+      id: 2,
+      booking_reference: 'HYD-6819',
+      pickup_location: 'MG Road Metro Station',
+      dropoff_location: 'Electronic City Phase 1',
+      status: 'completed',
+      booking_date: new Date(Date.now() - 86400000).toISOString(),
+      pickup_time: '10:00',
+      car_type: 'SUV (Toyota Fortuner)',
+      estimated_fare: 1250,
+      driver_name: 'Rajesh Kumar',
+      driver_phone: '+91 98765 43212'
+    }
+  ];
+
+  const defaultNotifications = [
+    { id: 101, role: 'client', title: 'Ride Confirmed', message: 'Driver Rajesh Kumar (4.85 ★) has been assigned for booking #HYD-7102.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 10).toISOString() },
+    { id: 102, role: 'client', title: 'Chauffeur Arrived', message: 'Your driver has arrived at Indiranagar 100ft Road pickup point.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 35).toISOString() },
+    { id: 103, role: 'client', title: 'Wallet Top-Up', message: 'Payment of $50.00 successfully credited to your client wallet.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 120).toISOString() },
+    { id: 104, role: 'client', title: 'Safety Telematics Active', message: 'Real-time GPS tracking and 24/7 SOS dispatch enabled for your journey.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 240).toISOString() },
+    { id: 105, role: 'client', title: 'Exclusive Promo', message: 'Use code HYD50 to get flat 50% discount on weekend outstation bookings.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 480).toISOString() }
+  ];
 
   const fetchData = () => {
-    if (currentUser?.id) {
-      fetch(`${API_BASE_URL}/api/bookings/${currentUser.id}`)
-        .then(res => res.json())
-        .then(data => setBookings(data))
-        .catch(err => console.error('Error fetching bookings:', err));
+    const clientId = currentUser?.id || 2;
+    try {
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const parsed = JSON.parse(storedBookings);
+        const filtered = parsed.filter(b => !b.client_id || String(b.client_id) === String(clientId));
+        setBookings(filtered.length > 0 ? filtered : defaultBookings);
+      } else {
+        setBookings(defaultBookings);
+      }
+    } catch (e) {
+      setBookings(defaultBookings);
+    }
 
-      fetch(`${API_BASE_URL}/api/notifications?userId=${currentUser.id}&role=client`)
-        .then(res => res.json())
-        .then(data => setNotifications(data))
-        .catch(err => console.error('Error fetching notifications:', err));
+    try {
+      const storedNotifs = localStorage.getItem('hyd_demo_notifications_client');
+      if (storedNotifs) {
+        const parsed = JSON.parse(storedNotifs);
+        setNotifications(Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultNotifications);
+      } else {
+        setNotifications(defaultNotifications);
+      }
+    } catch (e) {
+      setNotifications(defaultNotifications);
+    }
 
-      fetch(`${API_BASE_URL}/api/wallet/${currentUser.id}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.wallet) {
-            setWallet(data.wallet);
-            const balanceNum = parseFloat(data.wallet.balance);
-            if (balanceNum < 15 && sessionStorage.getItem('dismissedLowBalancePopup') !== 'true') {
-              setShowLowBalanceModal(true);
-            }
-          }
-        })
-        .catch(err => console.error('Error fetching wallet:', err));
+    try {
+      const storedWallet = localStorage.getItem(`hyd_client_wallet_${clientId}`);
+      if (storedWallet) {
+        const parsed = JSON.parse(storedWallet);
+        setWallet(parsed);
+      } else {
+        const initial = { balance: 250.00, currency: 'USD' };
+        setWallet(initial);
+      }
+    } catch (e) {
+      setWallet({ balance: 250.00, currency: 'USD' });
     }
   };
 
@@ -162,18 +240,17 @@ const ClientDashboard = () => {
                     flexDirection: 'column',
                     gap: '4px'
                   }}
-                  onClick={async () => {
+                  onClick={() => {
                     setSelectedNotification(notif);
                     if (!notif.is_read) {
-                      try {
-                        const res = await fetch(`${API_BASE_URL}/api/notifications/${notif.id}/read`, { method: 'PATCH' });
-                        if (res.ok) {
-                          setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: 1 } : n));
-                          window.dispatchEvent(new Event('storage'));
-                        }
-                      } catch (err) {
-                        console.error(err);
-                      }
+                      setNotifications(prev => {
+                        const updated = prev.map(n => n.id === notif.id ? { ...n, is_read: 1 } : n);
+                        try {
+                          localStorage.setItem('hyd_demo_notifications_client', JSON.stringify(updated));
+                        } catch (e) {}
+                        return updated;
+                      });
+                      window.dispatchEvent(new Event('storage'));
                     }
                   }}
                 >
@@ -188,6 +265,61 @@ const ClientDashboard = () => {
                   <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                     {notif.message}
                   </p>
+                  {(() => {
+                    const itemPromo = extractPromoCode(notif);
+                    if (!itemPromo) return null;
+                    const isCopied = copiedCode === itemPromo;
+                    return (
+                      <div 
+                        onClick={(e) => e.stopPropagation()} 
+                        style={{
+                          marginTop: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          background: 'rgba(212, 175, 55, 0.08)',
+                          border: '1px dashed rgba(212, 175, 55, 0.4)',
+                          borderRadius: '8px',
+                          padding: '5px 8px'
+                        }}
+                      >
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          color: 'var(--accent-gold)',
+                          fontFamily: 'monospace',
+                          letterSpacing: '0.5px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}>
+                          <Ticket size={12} /> {itemPromo}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleCopyCode(itemPromo, e)}
+                          style={{
+                            background: isCopied ? '#22c55e' : 'var(--accent-gold)',
+                            color: isCopied ? '#ffffff' : '#000000',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '3px 8px',
+                            fontSize: '10.5px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                          title="Copy Promo Code"
+                        >
+                          {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                          {isCopied ? 'Copied' : 'Copy Code'}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))
             )}
@@ -196,8 +328,8 @@ const ClientDashboard = () => {
       </div>
       {/* Notification Preview Modal */}
       {selectedNotification && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content" style={{ maxWidth: '450px', padding: '28px' }}>
+        <div className="safety-modal-overlay" onClick={() => setSelectedNotification(null)}>
+          <div className="safety-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px', padding: '28px' }}>
             <div className="safety-modal-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--accent-gold)' }}>
                 {selectedNotification.title}
@@ -211,6 +343,70 @@ const ClientDashboard = () => {
               <p style={{ fontSize: '15px', color: 'var(--text-main)', lineHeight: '1.6', margin: 0 }}>
                 {selectedNotification.message}
               </p>
+              {(() => {
+                const modalPromo = extractPromoCode(selectedNotification);
+                if (!modalPromo) return null;
+                const isCopied = copiedCode === modalPromo;
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(0, 0, 0, 0.35))',
+                    border: '1px dashed var(--accent-gold)',
+                    borderRadius: '14px',
+                    padding: '14px 16px',
+                    margin: '16px 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.25)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '10px',
+                        background: 'rgba(212, 175, 55, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--accent-gold)'
+                      }}>
+                        <Ticket size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                          Promotional Discount Code
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--accent-gold)', letterSpacing: '1px', fontFamily: 'monospace' }}>
+                          {modalPromo}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyCode(modalPromo, e)}
+                      style={{
+                        background: isCopied ? '#22c55e' : 'var(--accent-gold)',
+                        color: isCopied ? '#ffffff' : '#000000',
+                        border: 'none',
+                        padding: '9px 16px',
+                        borderRadius: '10px',
+                        fontSize: '12.5px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 4px 12px rgba(212, 175, 55, 0.2)'
+                      }}
+                    >
+                      {isCopied ? <Check size={15} /> : <Copy size={15} />}
+                      {isCopied ? 'Copied!' : 'Copy Code'}
+                    </button>
+                  </div>
+                );
+              })()}
               <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
                 <span>Recipient: Client</span>
                 <span>

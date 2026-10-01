@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { X, Camera, CheckCircle2, Upload } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import { useAuth } from '../context/AuthContext';
-import { API_BASE_URL } from '../config';
 import './Auth.css';
 
 const fileToBase64 = (file) => {
@@ -138,33 +137,72 @@ const Signup = ({ isOpen, onClose, onSwitchToLogin, defaultRole = 'client' }) =>
       aadhaarBack: aadhaarBackBase64
     };
 
+    const newUserId = Date.now();
+    const isDriver = role === 'driver';
+    const newUser = {
+      id: newUserId,
+      firstName: formData.firstName,
+      first_name: formData.firstName,
+      lastName: formData.lastName,
+      last_name: formData.lastName,
+      email: formData.email,
+      phone_number: `${countryCode}${formData.phoneNumber}`,
+      role,
+      status: 'active',
+      license_no: formData.licenseNumber || (isDriver ? `DL-${Math.floor(1000000000 + Math.random() * 9000000000)}` : null),
+      licenseNumber: formData.licenseNumber,
+      status_approval: isDriver ? 'pending' : 'approved',
+      rating: isDriver ? 5.0 : null,
+      total_trips: 0,
+      profile_photo: profilePhotoBase64 || (isDriver ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'),
+      license_front: licenseFrontBase64,
+      license_back: licenseBackBase64,
+      aadhaar_front: aadhaarFrontBase64,
+      aadhaar_back: aadhaarBackBase64,
+      created_at: new Date().toISOString()
+    };
+
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submissionData)
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        if (role === 'driver') {
-          // Drivers must wait for admin approval before they can login
-          showAlert("Account created successfully! Your profile and documents are now pending administrator verification. You will be able to login once approved.", "success");
-          onClose();
-        } else {
-          login({ id: data.userId, role, firstName: formData.firstName, lastName: formData.lastName });
-          showAlert("Account created successfully!", "success");
-          console.log('Signup success:', data);
-          onClose();
-          navigate(`/dashboard/${role}`);
-        }
-      } else {
-        showAlert(data.error || "Failed to create account.", "error");
-      }
-    } catch (err) {
-      console.error("Signup failed:", err);
-      showAlert("Network error. Please make sure the backend server and XAMPP MySQL are running.", "error");
+      const stored = localStorage.getItem('hyd_demo_users');
+      const usersList = stored ? JSON.parse(stored) : [];
+      usersList.push(newUser);
+      localStorage.setItem('hyd_demo_users', JSON.stringify(usersList));
+
+      // Push notification to Admin Console
+      const rawAdminNotifs = localStorage.getItem('hyd_demo_notifications_admin');
+      const adminNotifs = rawAdminNotifs ? JSON.parse(rawAdminNotifs) : [];
+      const adminAlert = {
+        id: Date.now(),
+        role: 'admin',
+        title: isDriver ? 'New Driver Application' : 'New Client Registration',
+        message: isDriver
+          ? `Driver ${newUser.first_name} ${newUser.last_name} (${newUser.email}) registered with license ${newUser.license_no}. Verification pending.`
+          : `Client ${newUser.first_name} ${newUser.last_name} (${newUser.email}) registered on the platform.`,
+        is_read: 0,
+        created_at: new Date().toISOString(),
+        type: isDriver ? 'warning' : 'info'
+      };
+      adminNotifs.unshift(adminAlert);
+      localStorage.setItem('hyd_demo_notifications_admin', JSON.stringify(adminNotifs));
+
+      // Dispatch cross-dashboard events
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('hyd:new-user', { detail: newUser }));
+      window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: adminAlert }));
+    } catch (e) {
+      console.error('Error saving user locally:', e);
+    }
+
+    if (role === 'driver') {
+      showAlert("Driver account created! Your profile and credentials are submitted to Admin for verification.", "success");
+      onClose();
+    } else {
+      login(newUser);
+      showAlert(`Welcome ${newUser.first_name}! Account created successfully.`, "success");
+      onClose();
+      localStorage.removeItem('authRedirect');
+      localStorage.removeItem('pendingBooking');
+      navigate(`/dashboard/${role.toLowerCase()}`);
     }
   };
 

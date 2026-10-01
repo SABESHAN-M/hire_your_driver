@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Car, Clock, Calendar as CalendarIcon, ChevronRight, Search, Filter, User } from 'lucide-react';
+import { Car, Clock, Calendar as CalendarIcon, ChevronRight, Search, Filter, User, Play } from 'lucide-react';
 import { useAlert } from '../../../context/AlertContext';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -54,68 +53,210 @@ const DriverBookings = () => {
     }
   }, [currentUser]);
 
-  const fetchData = async () => {
-    if (!currentUser?.id) return;
-    const driverName = `${currentUser.firstName} ${currentUser.lastName || ''}`.trim();
+  const getStoredAttendance = () => {
+    const driverId = currentUser?.id || 3;
     try {
-      setLoading(true);
-      // Fetch assigned bookings
-      const assignedRes = await fetch(`${API_BASE_URL}/api/bookings/driver/${encodeURIComponent(driverName)}`);
-      if (assignedRes.ok) {
-        const data = await assignedRes.json();
-        setAssignedRides(data);
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const record = Array.isArray(parsed) ? parsed.find(a => String(a.user_id) === String(driverId)) : parsed;
+        if (record) return record;
       }
-      
-      // Fetch attendance state to determine clock-in status
-      const attRes = await fetch(`${API_BASE_URL}/api/driver/attendance/${currentUser.id}`);
-      if (attRes.ok) {
-        const attData = await attRes.json();
-        setIsClockedIn(attData.attendance.is_clocked_in === 1);
-      }
-      
-      // Fetch available unassigned bookings
-      const availableRes = await fetch(`${API_BASE_URL}/api/bookings/unassigned/available?driverId=${currentUser.id}`);
-      if (availableRes.ok) {
-        const data = await availableRes.json();
-        setAvailableRequests(data);
-      }
-    } catch (err) {
-      console.error('Error fetching driver bookings data:', err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {}
+    return { is_clocked_in: 0, hours_logged: 5.5, monthly_hours_logged: 48.0, last_clock_in: null };
   };
 
-  const handleClockToggle = async () => {
-    if (!currentUser?.id) return;
+  const saveStoredAttendance = (record) => {
+    const driverId = currentUser?.id || 3;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/driver/attendance/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const nowClockedIn = data.attendance.is_clocked_in === 1;
-        setIsClockedIn(nowClockedIn);
-        if (nowClockedIn) {
-          showAlert("Clocked In successfully! You are now Online.", "success");
-        } else {
-          showAlert("Clocked Out successfully!", "success");
-        }
-        window.dispatchEvent(new Event('storage'));
-        fetchData();
+      let currentArr = [];
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) currentArr = parsed;
+        } catch (e) {}
       }
-    } catch (err) {
-      console.error('Toggle clock state error:', err);
-      showAlert("Error toggling duty status", "error");
-    }
+      const idx = currentArr.findIndex(a => String(a.user_id) === String(driverId));
+      if (idx >= 0) {
+        currentArr[idx] = { ...currentArr[idx], ...record };
+      } else {
+        currentArr.push({ user_id: driverId, ...record });
+      }
+      localStorage.setItem('hyd_demo_attendance', JSON.stringify(currentArr));
+    } catch (e) {}
   };
+
+  const normalizeDriverRide = (b, isRequest = false, index = 0) => {
+    if (!b) return null;
+    const id = b.id || b.dbId || (index + 1);
+    const dbId = b.dbId || id;
+    const bookingRef = b.bookingRef || b.booking_reference || b.bookingReference || `HYD-${dbId}`;
+    const location = b.location || b.pickupLocation || b.pickup_location || 'Banjara Hills, Road No. 12';
+    const destination = b.destination || b.dropoffLocation || b.dropoff_location || 'RGIA Airport';
+    const date = b.date || b.booking_date || 'Today, 2:30 PM';
+    const dutyType = b.dutyType || b.duty_type || 'Inside City';
+    const carModel = b.carModel || b.car_type || 'Sedan (Honda City)';
+    const transmission = b.transmission || 'Automatic';
+    const clientName = b.clientName || b.client_name || 'Client';
+    const clientPhone = b.clientPhone || b.client_phone || '+91 98765 00000';
+    const status = (b.status || (isRequest ? 'request' : 'upcoming')).toLowerCase();
+
+    let priceStr = '₹650';
+    if (typeof b.price === 'string' && b.price) priceStr = b.price;
+    else if (typeof b.price === 'number') priceStr = `₹${b.price}`;
+    else if (typeof b.estimated_fare === 'number') priceStr = `₹${b.estimated_fare}`;
+    else if (typeof b.estimated_fare === 'string' && b.estimated_fare) priceStr = b.estimated_fare;
+
+    const duration = b.duration || '2.0 hrs';
+    const startOtp = b.startOtp || b.otp || '4821';
+    const paymentStatus = b.paymentStatus || 'Paid';
+    const urgency = b.urgency || 'Normal';
+
+    return {
+      ...b,
+      id,
+      dbId,
+      bookingRef,
+      location,
+      destination,
+      pickupLocation: location,
+      dropoffLocation: destination,
+      date,
+      dutyType,
+      carModel,
+      transmission,
+      clientName,
+      clientPhone,
+      status,
+      price: priceStr,
+      duration,
+      startOtp,
+      paymentStatus,
+      urgency
+    };
+  };
+
+  const fetchData = () => {
+    // 1. Attendance state
+    const attData = getStoredAttendance();
+    const clockedIn = (attData.is_clocked_in === 1 || attData.online === true) && Boolean(attData.last_clock_in);
+    setIsClockedIn(clockedIn);
+
+    // 2. Mock & LocalStorage Bookings
+    const defaultAssigned = [
+      {
+        id: 1,
+        dbId: 1,
+        bookingRef: 'HYD-8492',
+        clientName: 'Priya Sharma',
+        clientPhone: '9876500000',
+        pickupLocation: 'Banjara Hills, Road No. 12',
+        dropoffLocation: 'RGIA Airport, Shamshabad',
+        date: 'Today, 2:30 PM',
+        dutyType: 'One Way',
+        carModel: 'Honda City (Manual)',
+        transmission: 'Manual',
+        price: '₹650',
+        status: 'upcoming',
+        startOtp: '4821',
+        paymentStatus: 'Paid'
+      }
+    ];
+
+    const defaultAvailable = [
+      { id: 101, dbId: 101, bookingRef: 'HYD-9021', clientName: 'Ananya Rao', pickupLocation: 'Hitech City, Hyderabad', dropoffLocation: 'Gachibowli, Hyderabad', dutyType: 'Inside City', carModel: 'Hyundai Creta', transmission: 'Automatic', price: '₹450', duration: '2.5 hrs', date: 'Today, 4:00 PM', urgency: 'Normal', status: 'request' },
+      { id: 102, dbId: 102, bookingRef: 'HYD-9022', clientName: 'Karan Sharma', pickupLocation: 'Banjara Hills, Hyderabad', dropoffLocation: 'Vijayawada Highway', dutyType: 'Outstation', carModel: 'Toyota Innova Crysta', transmission: 'Manual', price: '₹2,800', duration: '1 Day', date: 'Tomorrow, 6:00 AM', urgency: 'High', status: 'request' },
+      { id: 103, dbId: 103, bookingRef: 'HYD-9023', clientName: 'Siddharth Varma', pickupLocation: 'Jubilee Hills, Hyderabad', dropoffLocation: 'RGIA Airport', dutyType: 'One Way', carModel: 'Honda City', transmission: 'Automatic', price: '₹650', duration: '1.5 hrs', date: 'Today, 8:30 PM', urgency: 'Urgent', status: 'request' }
+    ];
+
+    try {
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const parsed = JSON.parse(storedBookings);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const assigned = parsed
+            .filter(b => b.status === 'upcoming' || b.status === 'in_progress' || b.status === 'started')
+            .map((b, idx) => normalizeDriverRide(b, false, idx));
+          const available = parsed
+            .filter(b => b.status === 'unassigned' || b.status === 'pending' || b.status === 'request')
+            .map((b, idx) => normalizeDriverRide(b, true, idx));
+          
+          setAssignedRides(assigned.length > 0 ? assigned : defaultAssigned.map((b, idx) => normalizeDriverRide(b, false, idx)));
+          setAvailableRequests(available.length > 0 ? available : defaultAvailable.map((b, idx) => normalizeDriverRide(b, true, idx)));
+          setLoading(false);
+          return;
+        }
+      }
+    } catch (e) {}
+
+    setAssignedRides(defaultAssigned.map((b, idx) => normalizeDriverRide(b, false, idx)));
+    setAvailableRequests(defaultAvailable.map((b, idx) => normalizeDriverRide(b, true, idx)));
+    setLoading(false);
+  };
+
+  // Push a duty-status notification into the shared driver notification store
+  const pushDutyNotification = (isGoingOnline) => {
+    const notifKey = 'hyd_demo_notifications_driver';
+    const clearedKey = 'hyd_notif_cleared_driver';
+    try {
+      const raw = localStorage.getItem(notifKey);
+      const existing = raw ? JSON.parse(raw) : [];
+      const arr = Array.isArray(existing) ? existing : [];
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const newNotif = isGoingOnline
+        ? {
+            id: Date.now(),
+            role: 'driver',
+            title: 'You are On Duty',
+            message: `You clocked in at ${timeStr}. Ride dispatch is now active — you are visible to nearby clients.`,
+            is_read: 0,
+            created_at: new Date().toISOString(),
+            type: 'success'
+          }
+        : {
+            id: Date.now(),
+            role: 'driver',
+            title: 'You are Off Duty',
+            message: `You clocked out at ${timeStr}. Ride dispatch has been paused.`,
+            is_read: 0,
+            created_at: new Date().toISOString(),
+            type: 'warning'
+          };
+      // Persist to localStorage
+      localStorage.setItem(clearedKey, '0');
+      localStorage.setItem(notifKey, JSON.stringify([newNotif, ...arr]));
+      // Directly inject into DashboardLayout's bell panel via custom event
+      window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: newNotif }));
+    } catch (e) {}
+  };
+
+  const handleClockToggle = () => {
+    const now = new Date();
+    const currentlyOn = isClockedIn;
+
+    if (!currentlyOn) {
+      saveStoredAttendance({ is_clocked_in: 1, online: true, last_clock_in: now.toISOString() });
+      setIsClockedIn(true);
+      pushDutyNotification(true);
+      showAlert("Clocked In successfully! You are now On Duty.", "success");
+    } else {
+      saveStoredAttendance({ is_clocked_in: 0, online: false, last_clock_in: null });
+      setIsClockedIn(false);
+      pushDutyNotification(false);
+      showAlert("Clocked Out successfully! You are now Off Duty.", "success");
+    }
+
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new CustomEvent('hyd:duty-change', { detail: { is_clocked_in: currentlyOn ? 0 : 1 } }));
+    fetchData();
+  };
+
+
 
   useEffect(() => {
     fetchData();
 
-    // Listen for storage events (e.g. duty status toggle from other pages)
     const handleStorage = () => {
       fetchData();
     };
@@ -125,91 +266,344 @@ const DriverBookings = () => {
     };
   }, [currentUser]);
 
-  const handleAccept = async (dbId, bookingRef) => {
-    const driverName = `${currentUser.firstName} ${currentUser.lastName || ''}`.trim();
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/bookings/${dbId}/accept`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driverName, driverId: currentUser.id })
-      });
-      if (res.ok) {
-        showAlert(`Successfully accepted ride ${bookingRef}!`, "success");
-        fetchData();
-        const acceptedRide = availableRequests.find(r => r.dbId === dbId);
-        if (acceptedRide) {
-          setSelectedTrip({ ...acceptedRide, status: 'upcoming' });
-        }
-      } else {
-        const data = await res.json();
-        showAlert(data.error || "Failed to accept ride request", "error");
-      }
-    } catch (error) {
-      console.error('Error accepting ride:', error);
-      showAlert("Error accepting ride request", "error");
+  const handleAccept = (dbId, bookingRef) => {
+    if (!isClockedIn) {
+      showAlert("You must be On Duty to accept rides! Please clock in first.", "error");
+      return;
     }
+
+    const acceptedRide = availableRequests.find(r => String(r.dbId) === String(dbId) || String(r.id) === String(dbId) || r.bookingRef === bookingRef);
+    let updatedTrip = null;
+
+    try {
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const list = JSON.parse(storedBookings);
+        const updatedList = list.map(b => {
+          const matchDb = String(b.dbId) === String(dbId) || String(b.id) === String(dbId);
+          const matchRef = (b.booking_reference && b.booking_reference === bookingRef) || (b.bookingRef && b.bookingRef === bookingRef);
+          if (matchDb || matchRef) {
+            const updated = {
+              ...b,
+              status: 'upcoming',
+              driver_id: currentUser?.id || 3,
+              driver_name: currentUser?.name || 'Rajesh Kumar',
+              driver_phone: currentUser?.phone || '+91 98765 43212',
+              driver_rating: 4.85,
+              driver_photo: currentUser?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+              accepted_at: new Date().toISOString()
+            };
+            updatedTrip = normalizeDriverRide(updated, false);
+            return updated;
+          }
+          return b;
+        });
+        localStorage.setItem('hyd_demo_bookings', JSON.stringify(updatedList));
+
+        // Send confirmation notification to client
+        const clientNotifKey = 'hyd_demo_notifications_client';
+        const rawC = localStorage.getItem(clientNotifKey);
+        const cList = rawC ? JSON.parse(rawC) : [];
+        const clientAlert = {
+          id: Date.now(),
+          role: 'client',
+          title: 'Chauffeur Assigned!',
+          message: `Chauffeur ${currentUser?.name || 'Rajesh Kumar'} accepted booking #${bookingRef || dbId}. They are arriving at your pickup location. Please share your 4-digit start OTP.`,
+          is_read: 0,
+          created_at: new Date().toISOString(),
+          type: 'success'
+        };
+        localStorage.setItem(clientNotifKey, JSON.stringify([clientAlert, ...(Array.isArray(cList) ? cList : [])]));
+
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: clientAlert }));
+      }
+    } catch (e) {
+      console.error('Error accepting in DriverBookings:', e);
+    }
+
+    const finalTrip = updatedTrip || (acceptedRide ? { ...acceptedRide, status: 'upcoming' } : null);
+    if (finalTrip) {
+      setAssignedRides(prev => [finalTrip, ...prev.filter(r => String(r.dbId) !== String(dbId) && String(r.id) !== String(dbId))]);
+      setAvailableRequests(prev => prev.filter(r => String(r.dbId) !== String(dbId) && String(r.id) !== String(dbId)));
+      setSelectedTrip(finalTrip);
+    }
+    showAlert(`Successfully accepted ride ${bookingRef || dbId}! Active Trip Console opened.`, "success");
   };
 
   const handleDecline = (dbId, bookingRef) => {
     const updated = [...declinedIds, dbId];
     setDeclinedIds(updated);
-    localStorage.setItem(`declinedBookings_${currentUser.id}`, JSON.stringify(updated));
-    showAlert(`Declined ride request ${bookingRef}.`, "info");
+    localStorage.setItem(`declinedBookings_${currentUser?.id || 3}`, JSON.stringify(updated));
+    showAlert(`Declined ride request ${bookingRef || dbId}.`, "info");
   };
 
-  const handleStartTrip = async (dbId, bookingRef, otpCode) => {
-    if (!otpCode || otpCode.length < 4) {
-      showAlert("Please enter a valid 4-digit OTP", "error");
+  const handleStartTrip = (dbId, bookingRef, otpCode) => {
+    const targetRide = assignedRides.find(r => String(r.dbId) === String(dbId) || String(r.id) === String(dbId) || r.bookingRef === bookingRef);
+    const expectedOtp = String(targetRide?.startOtp || targetRide?.otp || '4821').trim();
+    const enteredOtp = String(otpCode || '').trim();
+
+    if (!enteredOtp || enteredOtp.length !== 4) {
+      showAlert("Please enter the complete 4-digit OTP provided by the client.", "error");
       return false;
     }
+
+    if (enteredOtp !== expectedOtp) {
+      showAlert(`Invalid OTP entered! Please ask the client for the 4-digit OTP displayed on their screen.`, "error");
+      return false;
+    }
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/bookings/${dbId}/start`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otp: otpCode })
-      });
-      if (res.ok) {
-        showAlert(`Successfully started trip ${bookingRef}!`, "success");
-        setEnteringOtpId(null);
-        setOtpValue('');
-        fetchData();
-        return true;
-      } else {
-        const data = await res.json();
-        showAlert(data.error || "Failed to start trip. Check the OTP.", "error");
-        return false;
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const list = JSON.parse(storedBookings);
+        const updatedList = list.map(b => {
+          const matchDb = String(b.dbId) === String(dbId) || String(b.id) === String(dbId);
+          const matchRef = (b.booking_reference && b.booking_reference === bookingRef) || (b.bookingRef && b.bookingRef === bookingRef);
+          if (matchDb || matchRef) {
+            return {
+              ...b,
+              status: 'in_progress',
+              trip_started_at: new Date().toISOString()
+            };
+          }
+          return b;
+        });
+        localStorage.setItem('hyd_demo_bookings', JSON.stringify(updatedList));
+
+        // Notify client that trip started
+        const clientNotifKey = 'hyd_demo_notifications_client';
+        const rawC = localStorage.getItem(clientNotifKey);
+        const cList = rawC ? JSON.parse(rawC) : [];
+        const clientAlert = {
+          id: Date.now(),
+          role: 'client',
+          title: 'Trip Started!',
+          message: `Your chauffeur verified OTP. Trip #${bookingRef || dbId} is now in progress. Sit back and enjoy the ride!`,
+          is_read: 0,
+          created_at: new Date().toISOString(),
+          type: 'success'
+        };
+        localStorage.setItem(clientNotifKey, JSON.stringify([clientAlert, ...(Array.isArray(cList) ? cList : [])]));
+
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: clientAlert }));
       }
-    } catch (error) {
-      console.error('Error starting trip:', error);
-      showAlert("Error starting trip", "error");
-      return false;
+    } catch (e) {
+      console.error('Error starting trip in storage:', e);
     }
+
+    setAssignedRides(prev => prev.map(r => (String(r.dbId) === String(dbId) || String(r.id) === String(dbId)) ? { ...r, status: 'in_progress' } : r));
+    if (selectedTrip && (String(selectedTrip.dbId) === String(dbId) || String(selectedTrip.id) === String(dbId))) {
+      setSelectedTrip(prev => ({ ...prev, status: 'in_progress' }));
+    }
+    setEnteringOtpId(null);
+    setOtpValue('');
+    showAlert(`OTP Verified! Trip ${bookingRef || dbId} has started.`, "success");
+    return true;
   };
 
-  const handleCompleteTrip = async (dbId, bookingRef) => {
+  const handleCompleteTrip = (dbId, bookingRef) => {
+    const targetRide = assignedRides.find(r => String(r.dbId) === String(dbId) || String(r.id) === String(dbId) || r.bookingRef === bookingRef);
+    const rawFare = targetRide?.fare || targetRide?.price || targetRide?.estimated_fare || 650;
+    const fareNum = typeof rawFare === 'number'
+      ? rawFare
+      : (parseFloat(String(rawFare).replace(/[^0-9.]/g, '')) || 650);
+
+    const COMMISSION_RATE = 0.15; // 15% platform commission terms
+    const adminCommission = Math.round(fareNum * COMMISSION_RATE * 100) / 100;
+    const driverEarnings = Math.round((fareNum - adminCommission) * 100) / 100;
+    const driverId = currentUser?.id || 3;
+    const clientId = targetRide?.client_id || 2;
+    const nowIso = new Date().toISOString();
+
+    // 1. Update Booking Status in LocalStorage
     try {
-      const res = await fetch(`${API_BASE_URL}/api/bookings/${dbId}/complete`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        showAlert(`Successfully completed trip ${bookingRef}! Earnings Share: $${data.driverShare.toFixed(2)} (70%), Admin Share: $${data.adminShare.toFixed(2)} (30%)`, "success");
-        fetchData();
-      } else {
-        const errData = await res.json();
-        showAlert(errData.error || "Failed to complete trip", "error");
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const list = JSON.parse(storedBookings);
+        const updatedList = list.map(b => {
+          const matchDb = String(b.dbId) === String(dbId) || String(b.id) === String(dbId);
+          const matchRef = (b.booking_reference && b.booking_reference === bookingRef) || (b.bookingRef && b.bookingRef === bookingRef);
+          if (matchDb || matchRef) {
+            return {
+              ...b,
+              status: 'completed',
+              paymentStatus: 'Paid',
+              total_fare: fareNum,
+              admin_commission: adminCommission,
+              driver_earnings: driverEarnings,
+              completed_at: nowIso
+            };
+          }
+          return b;
+        });
+        localStorage.setItem('hyd_demo_bookings', JSON.stringify(updatedList));
       }
-    } catch (error) {
-      console.error('Error completing trip:', error);
-      showAlert("Error completing trip", "error");
+    } catch (e) {
+      console.error('Error completing trip in bookings:', e);
     }
+
+    // 2. Credit Admin Revenue (15% Commission)
+    try {
+      const defaultAdminRevenue = {
+        wallet: { balance: 25000.00, currency: 'INR' },
+        totalPlatformRevenue: 1250.00,
+        completedTrips: 1,
+        commissionRate: 15,
+        transactions: []
+      };
+      const rawAdmin = localStorage.getItem('hyd_demo_admin_revenue');
+      let adminData = defaultAdminRevenue;
+      if (rawAdmin) {
+        try {
+          const parsed = JSON.parse(rawAdmin);
+          if (parsed && (parsed.wallet?.currency === 'INR' || parsed.wallet?.balance < 40000)) {
+            adminData = parsed;
+          }
+        } catch (e) {}
+      }
+      adminData.wallet = adminData.wallet || { balance: 25000.00, currency: 'INR' };
+      adminData.wallet.currency = 'INR';
+      adminData.wallet.balance = (Number(adminData.wallet.balance) || 25000.00) + adminCommission;
+      adminData.totalPlatformRevenue = (Number(adminData.totalPlatformRevenue) || 1250.00) + fareNum;
+      adminData.completedTrips = (Number(adminData.completedTrips) || 1) + 1;
+      adminData.transactions = Array.isArray(adminData.transactions) ? adminData.transactions : [];
+      adminData.transactions.unshift({
+        id: Date.now(),
+        amount: adminCommission,
+        transaction_type: 'credit',
+        category: 'Platform Commission (15%)',
+        description: `Platform Fee (15%) - Trip #${bookingRef || dbId}`,
+        details: `Trip Fare: ₹${fareNum.toFixed(2)} • Completed ride`,
+        created_at: nowIso,
+        status: 'Settled'
+      });
+      localStorage.setItem('hyd_demo_admin_revenue', JSON.stringify(adminData));
+    } catch (e) {
+      console.error('Error updating admin revenue:', e);
+    }
+
+    // 3. Credit Driver Wallet (85% Net Earnings)
+    try {
+      const defaultDriverWallet = {
+        wallet: { id: driverId, user_id: driverId, balance: 15400, currency: 'USD' },
+        cards: [
+          { id: 1, user_id: driverId, card_brand: 'HDFC Bank', card_last4: '4821', expiry_date: 'N/A' },
+          { id: 2, user_id: driverId, card_brand: 'Google Pay', card_last4: '9876', expiry_date: 'N/A' }
+        ],
+        transactions: []
+      };
+      const wKey = `hyd_driver_wallet_data_${driverId}`;
+      const rawDriver = localStorage.getItem(wKey);
+      const driverData = rawDriver ? JSON.parse(rawDriver) : defaultDriverWallet;
+      driverData.wallet = driverData.wallet || { id: driverId, user_id: driverId, balance: 15400, currency: 'USD' };
+      driverData.wallet.balance = (Number(driverData.wallet.balance) || 0) + driverEarnings;
+      driverData.transactions = Array.isArray(driverData.transactions) ? driverData.transactions : [];
+      driverData.transactions.unshift({
+        id: Date.now(),
+        user_id: driverId,
+        amount: driverEarnings,
+        transaction_type: 'credit',
+        description: `Net Trip Earnings (85%) - Booking #${bookingRef || dbId}`,
+        created_at: nowIso
+      });
+      localStorage.setItem(wKey, JSON.stringify(driverData));
+      localStorage.setItem(`hyd_driver_wallet_${driverId}`, JSON.stringify({ balance: driverData.wallet.balance }));
+    } catch (e) {
+      console.error('Error updating driver wallet:', e);
+    }
+
+    // 4. Deduct Fare from Client Wallet
+    try {
+      const cKey = `hyd_client_wallet_data_${clientId}`;
+      const rawClient = localStorage.getItem(cKey);
+      if (rawClient) {
+        const cData = JSON.parse(rawClient);
+        if (cData.wallet) {
+          cData.wallet.balance = Math.max(0, (Number(cData.wallet.balance) || 0) - fareNum);
+          cData.transactions = Array.isArray(cData.transactions) ? cData.transactions : [];
+          cData.transactions.unshift({
+            id: Date.now(),
+            amount: fareNum,
+            transaction_type: 'debit',
+            description: `Trip Payment - Booking #${bookingRef || dbId}`,
+            created_at: nowIso
+          });
+          localStorage.setItem(cKey, JSON.stringify(cData));
+          localStorage.setItem(`hyd_client_wallet_${clientId}`, JSON.stringify(cData.wallet));
+        }
+      }
+    } catch (e) {
+      console.error('Error updating client wallet:', e);
+    }
+
+    // 5. Multi-Party Notifications
+    try {
+      // Client Notification
+      const clientNotifKey = 'hyd_demo_notifications_client';
+      const rawC = localStorage.getItem(clientNotifKey);
+      const cList = rawC ? JSON.parse(rawC) : [];
+      cList.unshift({
+        id: Date.now(),
+        role: 'client',
+        title: 'Trip Completed & Paid',
+        message: `Trip #${bookingRef || dbId} reached destination. Fare $${fareNum.toFixed(2)} paid successfully. Thank you for riding with Hire Your Driver!`,
+        is_read: 0,
+        created_at: nowIso,
+        type: 'success'
+      });
+      localStorage.setItem(clientNotifKey, JSON.stringify(cList));
+
+      // Driver Notification
+      const driverNotifKey = 'hyd_demo_notifications_driver';
+      const rawD = localStorage.getItem(driverNotifKey);
+      const dList = rawD ? JSON.parse(rawD) : [];
+      dList.unshift({
+        id: Date.now() + 1,
+        role: 'driver',
+        title: 'Trip Payment Credited',
+        message: `Trip #${bookingRef || dbId} complete! +$${driverEarnings.toFixed(2)} (85%) added to your wallet. Platform fee: $${adminCommission.toFixed(2)} (15%).`,
+        is_read: 0,
+        created_at: nowIso,
+        type: 'success'
+      });
+      localStorage.setItem(driverNotifKey, JSON.stringify(dList));
+
+      // Admin Notification
+      const adminNotifKey = 'hyd_demo_notifications_admin';
+      const rawA = localStorage.getItem(adminNotifKey);
+      const aList = rawA ? JSON.parse(rawA) : [];
+      aList.unshift({
+        id: Date.now() + 2,
+        role: 'admin',
+        title: 'Platform Commission Received',
+        message: `+$${adminCommission.toFixed(2)} platform commission received from Trip #${bookingRef || dbId} (Total fare: $${fareNum.toFixed(2)}).`,
+        is_read: 0,
+        created_at: nowIso,
+        type: 'success'
+      });
+      localStorage.setItem(adminNotifKey, JSON.stringify(aList));
+    } catch (e) {}
+
+    // 6. Update Local State & Broadcast
+    setAssignedRides(prev => prev.map(r => {
+      if (String(r.dbId) === String(dbId) || String(r.id) === String(dbId)) {
+        return { ...r, status: 'completed', paymentStatus: 'Paid' };
+      }
+      return r;
+    }));
+
+    window.dispatchEvent(new Event('storage'));
+    setSelectedTrip(null);
+    showAlert(`Trip Completed! You earned $${driverEarnings.toFixed(2)} (85%). Platform commission $${adminCommission.toFixed(2)} (15%) credited to Admin.`, "success");
   };
 
   // Filter out requests that this driver declined
-  const visibleRequests = availableRequests.filter(req => !declinedIds.includes(req.dbId));
+  const visibleRequests = availableRequests.filter(req => !declinedIds.includes(req.dbId) && !declinedIds.includes(req.id));
   
-  const upcomingRides = assignedRides.filter(r => r.status === 'upcoming' || r.status === 'started');
-  const pastRides = assignedRides.filter(r => r.status !== 'upcoming' && r.status !== 'started');
+  const upcomingRides = assignedRides.filter(r => r.status === 'upcoming' || r.status === 'started' || r.status === 'in_progress');
+  const pastRides = assignedRides.filter(r => r.status !== 'upcoming' && r.status !== 'started' && r.status !== 'in_progress');
 
   // Filter logic based on active tab
   const getActiveList = () => {
@@ -219,16 +613,17 @@ const DriverBookings = () => {
   };
 
   const filteredRides = getActiveList().filter(ride => {
+    if (!ride) return false;
+
     // 1. Search query filter
     const query = searchQuery.toLowerCase().trim();
     if (query) {
-      const matchesSearch = 
-        ride.id.toLowerCase().includes(query) || 
-        ride.location.toLowerCase().includes(query) || 
-        (ride.destination && ride.destination.toLowerCase().includes(query)) ||
-        ride.carModel.toLowerCase().includes(query) ||
-        (ride.clientName && ride.clientName.toLowerCase().includes(query));
-      if (!matchesSearch) return false;
+      const idMatch = String(ride.bookingRef || ride.id || '').toLowerCase().includes(query);
+      const locMatch = String(ride.location || ride.pickupLocation || '').toLowerCase().includes(query);
+      const destMatch = String(ride.destination || ride.dropoffLocation || '').toLowerCase().includes(query);
+      const carMatch = String(ride.carModel || '').toLowerCase().includes(query);
+      const clientMatch = String(ride.clientName || '').toLowerCase().includes(query);
+      if (!idMatch && !locMatch && !destMatch && !carMatch && !clientMatch) return false;
     }
     
     // 2. Duty Type filter
@@ -242,160 +637,190 @@ const DriverBookings = () => {
 
   const sortedRides = [...filteredRides].sort((a, b) => {
     if (sortBy === 'newest') {
-      return b.dbId - a.dbId;
+      return (Number(b.dbId) || 0) - (Number(a.dbId) || 0);
     } else if (sortBy === 'oldest') {
-      return a.dbId - b.dbId;
+      return (Number(a.dbId) || 0) - (Number(b.dbId) || 0);
     } else if (sortBy === 'price-low') {
-      const priceA = parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
-      const priceB = parseFloat(b.price.replace(/[^0-9.]/g, '')) || 0;
+      const priceA = parseFloat(String(a.price || '').replace(/[^0-9.]/g, '')) || 0;
+      const priceB = parseFloat(String(b.price || '').replace(/[^0-9.]/g, '')) || 0;
       return priceA - priceB;
     } else if (sortBy === 'price-high') {
-      const priceA = parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
-      const priceB = parseFloat(b.price.replace(/[^0-9.]/g, '')) || 0;
+      const priceA = parseFloat(String(a.price || '').replace(/[^0-9.]/g, '')) || 0;
+      const priceB = parseFloat(String(b.price || '').replace(/[^0-9.]/g, '')) || 0;
       return priceB - priceA;
     }
     return 0;
   });
 
-  const renderRideCard = (ride, isRequest = false) => (
-    <div key={ride.id} className="booking-card">
-      <div className="booking-header">
-        <div className="booking-id-date">
-          <span className="booking-id">{ride.id}</span>
-          <span className="booking-date"><CalendarIcon size={14} /> {ride.date}</span>
-        </div>
-        <div className={`status-badge status-${ride.status}`}>
-          {ride.status.toUpperCase()}
-        </div>
-      </div>
-      
-      <div className="booking-route booking-route-details">
-        <div className="route-point">
-          <div className="point-icon origin"></div>
-          <div className="route-info">
-            <p className="booking-location-text">Pickup: {ride.location}</p>
-            {ride.destination && <p className="booking-location-text">Drop: {ride.destination}</p>}
-            <p className="booking-trip-details">Trip: {ride.dutyType} • {ride.duration}</p>
+  const renderRideCard = (ride, isRequest = false) => {
+    if (!ride) return null;
+    const currentStatus = String(ride.status || (isRequest ? 'request' : 'upcoming')).toLowerCase();
+    const displayId = ride.bookingRef || ride.id;
+    const pickupDisplay = ride.location || ride.pickupLocation || 'Pickup location not specified';
+    const dropDisplay = ride.destination || ride.dropoffLocation;
+
+    return (
+      <div key={ride.id || ride.bookingRef || Math.random()} className="booking-card">
+        <div className="booking-header">
+          <div className="booking-id-date">
+            <span className="booking-id">{displayId}</span>
+            <span className="booking-date"><CalendarIcon size={14} /> {ride.date || 'Today'}</span>
+          </div>
+          <div className={`status-badge status-${currentStatus}`}>
+            {currentStatus.toUpperCase()}
           </div>
         </div>
-      </div>
-      
-      <div className="booking-footer">
-        <div className="booking-details-sm">
-          <span><Car size={14} /> {ride.carModel} ({ride.transmission})</span>
-          <span><User size={14} /> Client: {ride.clientName || 'Unassigned'}</span>
+        
+        <div className="booking-route booking-route-details">
+          <div className="route-point">
+            <div className="point-icon origin"></div>
+            <div className="route-info">
+              <p className="booking-location-text">Pickup: {pickupDisplay}</p>
+              {dropDisplay && <p className="booking-location-text">Drop: {dropDisplay}</p>}
+              <p className="booking-trip-details">Trip: {ride.dutyType || 'Inside City'} • {ride.duration || '2.0 hrs'}</p>
+            </div>
+          </div>
         </div>
-        <div className="booking-price-action">
-          <span className="price">{ride.price}</span>
-          <div className="action-buttons-group" style={{ display: 'flex', gap: '8px' }}>
-            {isRequest ? (
-              <>
-                <button 
-                  className="decline-booking-btn"
-                  onClick={() => handleDecline(ride.dbId, ride.id)}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'rgba(255, 59, 48, 0.1)',
-                    color: '#ff3b30',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseOver={(e) => e.target.style.background = 'rgba(255, 59, 48, 0.2)'}
-                  onMouseOut={(e) => e.target.style.background = 'rgba(255, 59, 48, 0.1)'}
-                >
-                  Decline
-                </button>
-                <button 
-                  className="accept-booking-btn"
-                  onClick={() => handleAccept(ride.dbId, ride.id)}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'var(--accent-gold)',
-                    color: '#000',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseOver={(e) => e.target.style.opacity = '0.9'}
-                  onMouseOut={(e) => e.target.style.opacity = '1'}
-                >
-                  Accept
-                </button>
-              </>
-            ) : (
-              <>
-                {ride.status === 'upcoming' && (
-                  enteringOtpId === ride.dbId ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="text"
-                        maxLength="4"
-                        placeholder="OTP"
-                        value={otpValue}
-                        onChange={(e) => setOtpValue(e.target.value.replace(/\D/g, ''))}
-                        style={{
-                          width: '54px',
-                          padding: '6px 8px',
-                          background: 'var(--bg-darker)',
-                          border: '1px solid var(--border-color)',
-                          color: 'var(--text-main)',
-                          borderRadius: '8px',
-                          textAlign: 'center',
-                          fontSize: '13px',
-                          fontWeight: '600'
-                        }}
-                      />
+        
+        <div className="booking-footer">
+          <div className="booking-details-sm">
+            <span><Car size={14} /> {ride.carModel} ({ride.transmission || 'Automatic'})</span>
+            <span><User size={14} /> Client: {ride.clientName || 'Unassigned'}</span>
+          </div>
+          <div className="booking-price-action">
+            <span className="price">{ride.price}</span>
+            <div className="action-buttons-group" style={{ display: 'flex', gap: '8px' }}>
+              {isRequest ? (
+                <>
+                  <button 
+                    className="decline-booking-btn"
+                    onClick={() => handleDecline(ride.dbId, ride.bookingRef || ride.id)}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'rgba(255, 59, 48, 0.1)',
+                      color: '#ff3b30',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseOver={(e) => e.target.style.background = 'rgba(255, 59, 48, 0.2)'}
+                    onMouseOut={(e) => e.target.style.background = 'rgba(255, 59, 48, 0.1)'}
+                  >
+                    Decline
+                  </button>
+                  <button 
+                    className="accept-booking-btn"
+                    onClick={() => handleAccept(ride.dbId, ride.bookingRef || ride.id)}
+                    style={{
+                      padding: '6px 12px',
+                      background: 'var(--accent-gold)',
+                      color: '#000',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'opacity 0.2s'
+                    }}
+                    onMouseOver={(e) => e.target.style.opacity = '0.9'}
+                    onMouseOut={(e) => e.target.style.opacity = '1'}
+                  >
+                    Accept
+                  </button>
+                </>
+              ) : (
+                <>
+                  {currentStatus === 'upcoming' && (
+                    enteringOtpId === ride.dbId ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="text"
+                          maxLength="4"
+                          placeholder="OTP"
+                          value={otpValue}
+                          onChange={(e) => setOtpValue(e.target.value.replace(/\D/g, ''))}
+                          style={{
+                            width: '54px',
+                            padding: '6px 8px',
+                            background: 'var(--bg-darker)',
+                            border: '1px solid var(--border-color)',
+                            color: 'var(--text-main)',
+                            borderRadius: '8px',
+                            textAlign: 'center',
+                            fontSize: '13px',
+                            fontWeight: '600'
+                          }}
+                        />
+                        <button
+                          onClick={() => handleStartTrip(ride.dbId, ride.bookingRef || ride.id, otpValue)}
+                          style={{
+                            padding: '6px 10px',
+                            background: 'var(--accent-gold)',
+                            color: '#000',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEnteringOtpId(null);
+                            setOtpValue('');
+                          }}
+                          style={{
+                            padding: '6px 8px',
+                            background: 'rgba(255,255,255,0.05)',
+                            color: 'var(--text-muted)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleStartTrip(ride.dbId, ride.id, otpValue)}
+                        className="start-booking-btn"
+                        onClick={() => {
+                          setEnteringOtpId(ride.dbId);
+                          setOtpValue('');
+                        }}
                         style={{
-                          padding: '6px 10px',
+                          padding: '6px 12px',
                           background: 'var(--accent-gold)',
                           color: '#000',
                           border: 'none',
                           borderRadius: '8px',
-                          fontSize: '12px',
-                          fontWeight: '700',
-                          cursor: 'pointer'
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          transition: 'opacity 0.2s',
+                          whiteSpace: 'nowrap'
                         }}
+                        onMouseOver={(e) => e.target.style.opacity = '0.9'}
+                        onMouseOut={(e) => e.target.style.opacity = '1'}
                       >
-                        Confirm
+                        Start Trip
                       </button>
-                      <button
-                        onClick={() => {
-                          setEnteringOtpId(null);
-                          setOtpValue('');
-                        }}
-                        style={{
-                          padding: '6px 8px',
-                          background: 'rgba(255,255,255,0.05)',
-                          color: 'var(--text-muted)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      className="start-booking-btn"
-                      onClick={() => {
-                        setEnteringOtpId(ride.dbId);
-                        setOtpValue('');
-                      }}
+                    )
+                  )}
+                  {(currentStatus === 'started' || currentStatus === 'in_progress') && (
+                    <button 
+                      className="complete-booking-btn"
+                      onClick={() => handleCompleteTrip(ride.dbId, ride.bookingRef || ride.id)}
                       style={{
                         padding: '6px 12px',
-                        background: 'var(--accent-gold)',
-                        color: '#000',
+                        background: '#34c759',
+                        color: '#fff',
                         border: 'none',
                         borderRadius: '8px',
                         fontSize: '13px',
@@ -407,60 +832,38 @@ const DriverBookings = () => {
                       onMouseOver={(e) => e.target.style.opacity = '0.9'}
                       onMouseOut={(e) => e.target.style.opacity = '1'}
                     >
-                      Start Trip
+                      Complete Trip
                     </button>
-                  )
-                )}
-                {ride.status === 'started' && (
+                  )}
                   <button 
-                    className="complete-booking-btn"
-                    onClick={() => handleCompleteTrip(ride.dbId, ride.id)}
+                    className="icon-btn-small" 
+                    onClick={() => setSelectedTrip(ride)}
                     style={{
-                      padding: '6px 12px',
-                      background: '#34c759',
-                      color: '#fff',
-                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-main)',
                       borderRadius: '8px',
-                      fontSize: '13px',
-                      fontWeight: '600',
+                      width: '32px',
+                      height: '32px',
                       cursor: 'pointer',
-                      transition: 'opacity 0.2s',
-                      whiteSpace: 'nowrap'
+                      transition: 'background 0.2s'
                     }}
-                    onMouseOver={(e) => e.target.style.opacity = '0.9'}
-                    onMouseOut={(e) => e.target.style.opacity = '1'}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                   >
-                    Complete Trip
+                    <ChevronRight size={18} />
                   </button>
-                )}
-                <button 
-                  className="icon-btn-small" 
-                  onClick={() => setSelectedTrip(ride)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-main)',
-                    borderRadius: '8px',
-                    width: '32px',
-                    height: '32px',
-                    cursor: 'pointer',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (selectedTrip) {
     return (
@@ -729,17 +1132,23 @@ const DriverBookings = () => {
             {activeTab === 'requests' && (
               !isClockedIn ? (
                 <div className="empty-state offline-state">
-                  <Clock size={48} color="var(--accent-gold)" style={{ opacity: 0.8, marginBottom: '16px' }} />
-                  <h3>You are currently Offline</h3>
-                  <p style={{ maxWidth: '400px', margin: '0 auto 24px', color: 'var(--text-muted)' }}>
-                    You must go online (clock in) to view and receive new booking requests from clients.
+                  <div className="offline-icon-wrapper">
+                    <Clock size={36} color="var(--accent-gold)" />
+                  </div>
+                  <h3 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '8px', color: 'var(--text-main)' }}>
+                    You are currently Offline
+                  </h3>
+                  <p style={{ maxWidth: '420px', margin: '0 auto 28px', color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.6' }}>
+                    You must go online (clock in) to view and receive real-time booking requests from clients.
                   </p>
                   <button 
                     onClick={handleClockToggle} 
-                    className="action-btn accept-btn"
-                    style={{ width: 'auto', padding: '12px 32px', margin: '0 auto' }}
+                    className="go-online-btn"
+                    title="Click to go on duty and start receiving client trip requests"
                   >
-                    Go Online
+                    <span className="go-online-pulse-dot" />
+                    <Play size={16} fill="#000" />
+                    <span>Go Online (Start Duty)</span>
                   </button>
                 </div>
               ) : sortedRides.length > 0 ? (
@@ -786,22 +1195,35 @@ const DriverBookings = () => {
 // --- TRIP DETAIL ROUTING & MAP SUBCOMPONENTS ---
 
 const locationCoords = {
-  '120 broadway': [40.7083, -74.0110],
-  'jfk airport': [40.6413, -73.7781],
-  'jfk': [40.6413, -73.7781],
-  'grand central station': [40.7527, -73.9772],
-  'grand central': [40.7527, -73.9772],
-  'times square': [40.7580, -73.9855],
-  'manhattan': [40.7831, -73.9712],
-  'brooklyn': [40.6782, -73.9442],
-  'queens': [40.7282, -73.7949],
-  'bronx': [40.8448, -73.8648],
-  'staten island': [40.5795, -74.1502]
+  // Bengaluru Hub Locations (Matches Client Booking Map)
+  'indiranagar': [12.9716, 77.6412],
+  'kempegowda': [13.1986, 77.7066],
+  'airport': [13.1986, 77.7066],
+  'whitefield': [12.9698, 77.7500],
+  'koramangala': [12.9352, 77.6245],
+  'mg road': [12.9756, 77.6066],
+  'electronic city': [12.8458, 77.6658],
+  'bengaluru': [12.9716, 77.5946],
+  'bangalore': [12.9716, 77.5946],
+
+  // Hyderabad Hub Locations
+  'banjara hills': [17.4156, 78.4350],
+  'hitech city': [17.4474, 78.3762],
+  'gachibowli': [17.4401, 78.3489],
+  'jubilee hills': [17.4319, 78.4073],
+  'rgia airport': [17.2403, 78.4294],
+  'shamshabad': [17.2403, 78.4294],
+  'madhapur': [17.4483, 78.3915],
+  'kondapur': [17.4699, 78.3578],
+  'kukatpally': [17.4947, 78.3996],
+  'secunderabad': [17.4399, 78.4983],
+  'charminar': [17.3616, 78.4747],
+  'vijayawada': [16.5062, 80.6480]
 };
 
 const getCoordinates = (address) => {
-  if (!address) return [40.7128, -74.0060];
-  const addrLower = address.toLowerCase();
+  if (!address) return [12.9716, 77.5946];
+  const addrLower = String(address).toLowerCase();
   
   for (const [key, coords] of Object.entries(locationCoords)) {
     if (addrLower.includes(key)) {
@@ -809,7 +1231,7 @@ const getCoordinates = (address) => {
     }
   }
   
-  // Deterministic generator fallback near NYC
+  // Deterministic generator fallback near Bengaluru center
   let hash1 = 0;
   let hash2 = 0;
   for (let i = 0; i < address.length; i++) {
@@ -819,7 +1241,20 @@ const getCoordinates = (address) => {
   const latOffset = (hash1 - 500) / 10000;
   const lngOffset = (hash2 - 500) / 10000;
   
-  return [40.7128 + latOffset, -74.0060 + lngOffset];
+  return [12.9716 + latOffset, 77.5946 + lngOffset];
+};
+
+// Helper: Prioritizes exact GPS coordinates chosen on Client LocationMap
+export const getTripCoords = (coords, fallbackAddress) => {
+  if (coords) {
+    if (Array.isArray(coords) && coords.length >= 2 && !isNaN(Number(coords[0])) && !isNaN(Number(coords[1]))) {
+      return [Number(coords[0]), Number(coords[1])];
+    }
+    if (coords.lat !== undefined && coords.lng !== undefined && !isNaN(Number(coords.lat)) && !isNaN(Number(coords.lng))) {
+      return [Number(coords.lat), Number(coords.lng)];
+    }
+  }
+  return getCoordinates(fallbackAddress);
 };
 
 const MapBoundsAdjuster = ({ points }) => {
@@ -883,12 +1318,12 @@ const RouteMap = ({ origin, destination }) => {
     <MapContainer 
       center={origin} 
       zoom={13} 
-      style={{ width: '100%', height: '100%', borderRadius: '16px', border: '1px solid var(--border-color)' }}
+      style={{ width: '100%', height: '100%', minHeight: '450px', borderRadius: '16px', border: '1px solid var(--border-color)' }}
       zoomControl={false}
     >
       <TileLayer
-        attribution='&copy; OpenStreetMap'
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <Marker position={origin} icon={pickupIcon} />
       <Marker position={destination} icon={dropoffIcon} />
@@ -901,8 +1336,8 @@ const RouteMap = ({ origin, destination }) => {
 };
 
 const DriverTripDetail = ({ trip, onClose, onStart, onComplete }) => {
-  const origin = getCoordinates(trip.location);
-  const destination = getCoordinates(trip.destination);
+  const origin = getTripCoords(trip.pickupCoords, trip.pickupLocation || trip.location);
+  const destination = getTripCoords(trip.destCoords, trip.dropoffLocation || trip.destination);
   const [otpInput, setOtpInput] = useState('');
 
   return (
@@ -932,7 +1367,7 @@ const DriverTripDetail = ({ trip, onClose, onStart, onComplete }) => {
             ← Back to List
           </button>
           <h1 style={{ margin: 0, fontSize: '28px' }}>Active Trip Console</h1>
-          <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)' }}>Routing directions and client information for trip {trip.id}</p>
+          <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)' }}>Routing directions and client information for trip {trip.bookingRef || trip.id}</p>
         </div>
       </div>
 
@@ -945,7 +1380,7 @@ const DriverTripDetail = ({ trip, onClose, onStart, onComplete }) => {
           <div className="booking-card" style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', justifycontent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <span className="booking-id" style={{ fontSize: '18px' }}>{trip.id}</span>
+                <span className="booking-id" style={{ fontSize: '18px' }}>{trip.bookingRef || trip.id}</span>
                 <span className={`status-badge status-${trip.status}`} style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '12px', textTransform: 'uppercase', fontWeight: '700' }}>
                   {trip.status}
                 </span>
@@ -1014,7 +1449,7 @@ const DriverTripDetail = ({ trip, onClose, onStart, onComplete }) => {
                     }}
                   />
                   <button
-                    onClick={() => onStart(trip.dbId, trip.id, otpInput)}
+                    onClick={() => onStart(trip.dbId, trip.bookingRef || trip.id, otpInput)}
                     style={{
                       padding: '0 24px',
                       background: 'var(--accent-gold)',
@@ -1032,9 +1467,9 @@ const DriverTripDetail = ({ trip, onClose, onStart, onComplete }) => {
               </div>
             )}
 
-            {trip.status === 'started' && (
+            {(trip.status === 'started' || trip.status === 'in_progress') && (
               <button 
-                onClick={() => onComplete(trip.dbId, trip.id)}
+                onClick={() => onComplete(trip.dbId, trip.bookingRef || trip.id)}
                 style={{
                   width: '100%',
                   padding: '14px',

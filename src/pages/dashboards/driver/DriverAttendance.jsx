@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Clock, CheckCircle2, XCircle, Play, Square, Award, History } from 'lucide-react';
 import { useAlert } from '../../../context/AlertContext';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import './DriverAttendance.css';
 
 const DriverAttendance = () => {
   const { showAlert } = useAlert();
-  const { currentUser } = useAuth();
+  const { currentUser, openLogin } = useAuth();
   
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [availabilityStatus, setAvailabilityStatus] = useState('Offline');
@@ -17,34 +16,72 @@ const DriverAttendance = () => {
   const [liveElapsed, setLiveElapsed] = useState(0);
   const [clockLogs, setClockLogs] = useState([]);
 
-  const fetchAttendance = async () => {
-    if (!currentUser?.id) return;
+  const getStoredAttendance = () => {
+    const driverId = currentUser?.id || 3;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/driver/attendance/${currentUser.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        const clockedIn = data.attendance.is_clocked_in === 1;
-        setIsClockedIn(clockedIn);
-        setAvailabilityStatus(clockedIn ? 'Online & Available' : 'Offline');
-        setHoursLogged(Number(data.attendance.hours_logged));
-        setMonthlyHoursLogged(Number(data.attendance.monthly_hours_logged || 0));
-        setLastClockIn(clockedIn && data.attendance.last_clock_in ? new Date(data.attendance.last_clock_in) : null);
-        
-        const mappedLogs = data.logs.map(log => {
-          const dateObj = new Date(log.event_time);
-          return {
-            id: log.id,
-            type: log.event_type,
-            time: dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            date: dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            status: log.status
-          };
-        });
-        setClockLogs(mappedLogs);
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const record = Array.isArray(parsed) ? parsed.find(a => String(a.user_id) === String(driverId)) : parsed;
+        if (record) return record;
       }
-    } catch (err) {
-      console.error("Error fetching attendance:", err);
-    }
+    } catch (e) {}
+    return {
+      user_id: driverId,
+      is_clocked_in: 0,
+      hours_logged: 5.5,
+      monthly_hours_logged: 48.0,
+      last_clock_in: null,
+      logs: [
+        { id: 1, event_type: 'Clock Out', event_time: new Date(Date.now() - 3600000 * 2).toISOString(), status: 'Success' }
+      ]
+    };
+  };
+
+  const saveStoredAttendance = (record) => {
+    const driverId = currentUser?.id || 3;
+    try {
+      let currentArr = [];
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) currentArr = parsed;
+        } catch (e) {}
+      }
+      const idx = currentArr.findIndex(a => String(a.user_id) === String(driverId));
+      if (idx >= 0) {
+        currentArr[idx] = { ...currentArr[idx], ...record };
+      } else {
+        currentArr.push({ user_id: driverId, ...record });
+      }
+      localStorage.setItem('hyd_demo_attendance', JSON.stringify(currentArr));
+    } catch (e) {}
+  };
+
+  const fetchAttendance = () => {
+    const attData = getStoredAttendance();
+    const clockedIn = (attData.is_clocked_in === 1 || attData.online === true) && Boolean(attData.last_clock_in);
+    setIsClockedIn(clockedIn);
+    setAvailabilityStatus(clockedIn ? 'Online & Available' : 'Offline');
+    setHoursLogged(Number(attData.hours_logged || attData.today_hours || 5.5));
+    setMonthlyHoursLogged(Number(attData.monthly_hours_logged || 48.0));
+    setLastClockIn(clockedIn && attData.last_clock_in ? new Date(attData.last_clock_in) : null);
+
+    const rawLogs = attData.logs || [
+      { id: 1, event_type: 'Clock In', event_time: new Date().toISOString(), status: 'Success' }
+    ];
+    const mappedLogs = rawLogs.map(log => {
+      const dateObj = new Date(log.event_time || Date.now());
+      return {
+        id: log.id,
+        type: log.event_type || log.type || 'Clock Event',
+        time: dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        date: dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        status: log.status || 'Success'
+      };
+    });
+    setClockLogs(mappedLogs);
   };
 
   useEffect(() => {
@@ -92,49 +129,58 @@ const DriverAttendance = () => {
     return parts.join(' ');
   };
 
-  const handleClockToggle = async () => {
-    if (!currentUser?.id) return;
-    
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/driver/attendance/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const nowClockedIn = data.attendance.is_clocked_in === 1;
-        setIsClockedIn(nowClockedIn);
-        setAvailabilityStatus(nowClockedIn ? 'Online & Available' : 'Offline');
-        setHoursLogged(Number(data.attendance.hours_logged));
-        setMonthlyHoursLogged(Number(data.attendance.monthly_hours_logged || 0));
-        setLastClockIn(nowClockedIn && data.attendance.last_clock_in ? new Date(data.attendance.last_clock_in) : null);
-        
-        const mappedLogs = data.logs.map(log => {
-          const dateObj = new Date(log.event_time);
-          return {
-            id: log.id,
-            type: log.event_type,
-            time: dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            date: dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            status: log.status
-          };
-        });
-        setClockLogs(mappedLogs);
-        
-        if (data.attendance.is_clocked_in === 0) {
-          showAlert(`Clocked Out successfully! Added ${formatDurationFriendly(data.addedHours)}.`, "success");
-        } else {
-          showAlert("Clocked In successfully! You are now Online.", "success");
-        }
-        
-        // Dispatch storage event so other components update instantly
-        window.dispatchEvent(new Event('storage'));
-      }
-    } catch (err) {
-      console.error('Toggle clock state error:', err);
-      showAlert("Error toggling duty status", "error");
+  const handleClockToggle = () => {
+    const now = new Date();
+    const attData = getStoredAttendance();
+    const currentlyOn = isClockedIn;
+    const existingLogs = attData.logs || [];
+
+    if (!currentlyOn) {
+      const newLogs = [
+        { id: Date.now(), event_type: 'Clock In', event_time: now.toISOString(), status: 'Success' },
+        ...existingLogs
+      ];
+      const updated = {
+        is_clocked_in: 1,
+        online: true,
+        hours_logged: hoursLogged,
+        monthly_hours_logged: monthlyHoursLogged,
+        last_clock_in: now.toISOString(),
+        logs: newLogs
+      };
+      saveStoredAttendance(updated);
+      setIsClockedIn(true);
+      setAvailabilityStatus('Online & Available');
+      setLastClockIn(now);
+      showAlert("Clocked In successfully! You are now On Duty.", "success");
+    } else {
+      const addedHours = lastClockIn ? Math.max(0, (now.getTime() - lastClockIn.getTime()) / (1000 * 60 * 60)) : 0;
+      const newHours = hoursLogged + addedHours;
+      const newMonthly = monthlyHoursLogged + addedHours;
+      const newLogs = [
+        { id: Date.now(), event_type: 'Clock Out', event_time: now.toISOString(), status: 'Success' },
+        ...existingLogs
+      ];
+      const updated = {
+        is_clocked_in: 0,
+        online: false,
+        hours_logged: newHours,
+        monthly_hours_logged: newMonthly,
+        last_clock_in: null,
+        logs: newLogs
+      };
+      saveStoredAttendance(updated);
+      setIsClockedIn(false);
+      setAvailabilityStatus('Offline');
+      setHoursLogged(newHours);
+      setMonthlyHoursLogged(newMonthly);
+      setLastClockIn(null);
+      showAlert(`Clocked Out successfully! Added ${formatDurationFriendly(addedHours)}.`, "success");
     }
+
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new CustomEvent('hyd:duty-change', { detail: { is_clocked_in: currentlyOn ? 0 : 1 } }));
+    fetchAttendance();
   };
 
 

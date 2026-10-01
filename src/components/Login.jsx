@@ -4,8 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { X, CheckCircle2 } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import { useAuth } from '../context/AuthContext';
-import { API_BASE_URL } from '../config';
 import './Auth.css';
+
+const DEMO_CREDENTIALS = {
+  client: { email: 'rahul@gmail.com', password: 'password123', phone: '9876543211' },
+  driver: { email: 'rajesh@gmail.com', password: 'password123', phone: '9876543212' },
+  admin:  { email: 'admin@hireyourdriver.com', password: 'password123', phone: '9876543210' }
+};
 
 const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
   const navigate = useNavigate();
@@ -16,11 +21,11 @@ const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
   const [role, setRole] = useState('client');
   const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'phone'
   
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(DEMO_CREDENTIALS.client.email);
+  const [password, setPassword] = useState(DEMO_CREDENTIALS.client.password);
   
   const [countryCode, setCountryCode] = useState('+91');
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(DEMO_CREDENTIALS.client.phone);
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
   const [otpVerified, setOtpVerified] = useState(false);
@@ -32,6 +37,28 @@ const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
   const [resetOtp, setResetOtp] = useState('');
   const [resetOtpSent, setResetOtpSent] = useState(false);
   const [resetOtpVerified, setResetOtpVerified] = useState(false);
+
+  const handleRoleChange = (newRole) => {
+    setRole(newRole);
+    const creds = DEMO_CREDENTIALS[newRole];
+    if (creds) {
+      setEmail(creds.email);
+      setPassword(creds.password);
+      setPhoneNumber(creds.phone);
+      if (newRole === 'admin') {
+        setLoginMethod('email');
+      }
+    }
+  };
+
+  React.useEffect(() => {
+    if (isOpen) {
+      const creds = DEMO_CREDENTIALS[role] || DEMO_CREDENTIALS.client;
+      setEmail(creds.email);
+      setPassword(creds.password);
+      setPhoneNumber(creds.phone);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -54,28 +81,13 @@ const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
   };
 
   // Forgot password helpers
-  const handleSendResetOtp = async () => {
+  const handleSendResetOtp = () => {
     if (!resetEmail) {
       showAlert("Please enter your email.", "error");
       return;
     }
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/verify-reset-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: resetEmail, role })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setResetOtpSent(true);
-        showAlert("Verification code sent! Hint: use 1234", "success");
-      } else {
-        showAlert(data.error || "Failed to find account", "error");
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert("Network error.", "error");
-    }
+    setResetOtpSent(true);
+    showAlert("Verification code sent! Hint: use 1234", "success");
   };
 
   const handleVerifyResetOtp = () => {
@@ -87,71 +99,139 @@ const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
     }
   };
 
-  const handleResetPassword = async (e) => {
+  const handleResetPassword = (e) => {
     e.preventDefault();
     if (!resetOtpVerified) {
       showAlert("Please verify the code first.", "error");
       return;
     }
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: resetEmail, role, newPassword })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showAlert("Password reset successfully! Please login with your new password.", "success");
-        setIsForgotPassword(false);
-        setResetOtpSent(false);
-        setResetOtpVerified(false);
-        setResetEmail('');
-        setResetOtp('');
-        setNewPassword('');
-      } else {
-        showAlert(data.error || "Password reset failed.", "error");
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert("Network error.", "error");
+    if (!newPassword || newPassword.length < 6) {
+      showAlert("Password must be at least 6 characters long.", "error");
+      return;
     }
+
+    showAlert("Password reset successfully! Please login with your new password.", "success");
+    setIsForgotPassword(false);
+    setResetOtpSent(false);
+    setResetOtpVerified(false);
+    setResetEmail('');
+    setResetOtp('');
+    setNewPassword('');
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (loginMethod === 'phone' && !otpVerified) {
       showAlert("Please verify your phone number using OTP first.", "error");
       return;
     }
-    
-    const submissionData = { 
-      role, 
-      method: loginMethod,
-      ...(loginMethod === 'email' ? { email, password } : { phoneNumber: `${countryCode}${phoneNumber}` })
-    };
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(submissionData)
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        login(data.user);
-        showAlert(`Welcome back, ${data.user.firstName}!`, "success");
-        console.log('Login success:', data);
-        onClose();
-        navigate(`/dashboard/${role}`);
-      } else {
-        showAlert(data.error || "Login failed.", "error");
+
+    const defaultUsers = {
+      admin: {
+        id: 1,
+        firstName: 'System',
+        first_name: 'System',
+        lastName: 'Admin',
+        last_name: 'Admin',
+        email: email || 'admin@hireyourdriver.com',
+        phone_number: '9876543210',
+        role: 'admin',
+        status: 'active',
+        profile_photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80'
+      },
+      driver: {
+        id: 3,
+        firstName: 'Rajesh',
+        first_name: 'Rajesh',
+        lastName: 'Kumar',
+        last_name: 'Kumar',
+        email: email || 'rajesh@gmail.com',
+        phone_number: phoneNumber || '9876543212',
+        role: 'driver',
+        status: 'active',
+        license_no: 'DL-042019984321',
+        rating: 4.85,
+        total_trips: 142,
+        status_approval: 'approved',
+        profile_photo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80'
+      },
+      client: {
+        id: 2,
+        firstName: 'Rahul',
+        first_name: 'Rahul',
+        lastName: 'Sharma',
+        last_name: 'Sharma',
+        email: email || 'rahul@gmail.com',
+        phone_number: phoneNumber || '9876543211',
+        role: 'client',
+        status: 'active',
+        profile_photo: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=300&q=80'
       }
-    } catch (err) {
-      console.error("Login failed:", err);
-      showAlert("Network error. Please make sure the backend server and XAMPP MySQL are running.", "error");
+    };
+
+    let matchedUser = null;
+    try {
+      const stored = localStorage.getItem('hyd_demo_users');
+      if (stored) {
+        const usersList = JSON.parse(stored);
+        if (Array.isArray(usersList)) {
+          matchedUser = usersList.find(u => {
+            const emailMatch = email && u.email && u.email.toLowerCase() === email.toLowerCase();
+            const cleanPhone = (phoneNumber || '').replace(/\D/g, '');
+            const userPhone = (u.phone_number || '').replace(/\D/g, '');
+            const phoneMatch = cleanPhone && userPhone && (userPhone.includes(cleanPhone) || cleanPhone.includes(userPhone));
+            return emailMatch || phoneMatch;
+          });
+        }
+      }
+    } catch (e) {}
+
+    const userObj = matchedUser || defaultUsers[role] || defaultUsers.client;
+    login(userObj);
+    const name = userObj.first_name || userObj.firstName || 'User';
+    showAlert(`Welcome back, ${name}!`, "success");
+    onClose();
+    localStorage.removeItem('authRedirect');
+    localStorage.removeItem('pendingBooking');
+    const targetRole = (userObj.role || role || 'client').toLowerCase();
+    
+    // When logging in as driver, ensure duty starts Off Duty
+    if (targetRole === 'driver') {
+      try {
+        const raw = localStorage.getItem('hyd_demo_attendance');
+        let currentArr = [];
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) currentArr = parsed;
+          } catch (e) {}
+        }
+        const driverId = userObj.id || 3;
+        const idx = currentArr.findIndex(a => String(a.user_id) === String(driverId));
+        if (idx >= 0) {
+          currentArr[idx] = {
+            ...currentArr[idx],
+            is_clocked_in: 0,
+            online: false,
+            last_clock_in: null
+          };
+        } else {
+          currentArr.push({
+            user_id: driverId,
+            is_clocked_in: 0,
+            online: false,
+            hours_logged: 5.5,
+            monthly_hours_logged: 48.0,
+            last_clock_in: null
+          });
+        }
+        localStorage.setItem('hyd_demo_attendance', JSON.stringify(currentArr));
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('hyd:duty-change', { detail: { is_clocked_in: 0 } }));
+      } catch (e) {}
     }
+
+    navigate(`/dashboard/${targetRole}`);
   };
 
   const handleOverlayClick = (e) => {
@@ -274,9 +354,9 @@ const Login = ({ isOpen, onClose, onSwitchToSignup }) => {
           <div className="form-group">
             <label>Login as</label>
             <div className="role-toggle-group">
-              <button type="button" className={`role-toggle-btn ${role === 'client' ? 'active' : ''}`} onClick={() => setRole('client')}>Client</button>
-              <button type="button" className={`role-toggle-btn ${role === 'driver' ? 'active' : ''}`} onClick={() => setRole('driver')}>Driver</button>
-              <button type="button" className={`role-toggle-btn ${role === 'admin' ? 'active' : ''}`} onClick={() => { setRole('admin'); setLoginMethod('email'); }}>Admin</button>
+              <button type="button" className={`role-toggle-btn ${role === 'client' ? 'active' : ''}`} onClick={() => handleRoleChange('client')}>Client</button>
+              <button type="button" className={`role-toggle-btn ${role === 'driver' ? 'active' : ''}`} onClick={() => handleRoleChange('driver')}>Driver</button>
+              <button type="button" className={`role-toggle-btn ${role === 'admin' ? 'active' : ''}`} onClick={() => handleRoleChange('admin')}>Admin</button>
             </div>
           </div>
 

@@ -802,3 +802,141 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+/* ==========================================================================
+   Admin Bookings Financial Breakdown & Stats Strip
+   ========================================================================== */
+.admin-booking-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.booking-stat-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(10px);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.booking-stat-box:hover {
+  transform: translateY(-2px);
+  border-color: rgba(212, 175, 55, 0.3);
+}
+
+.booking-stat-box.highlight {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.08), rgba(0, 0, 0, 0.3));
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.stat-box-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.stat-box-val {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: 0.2px;
+}
+
+.stat-box-val.text-green {
+  color: #34c759;
+}
+
+.stat-box-val.text-gold {
+  color: var(--accent-gold);
+}
+
+.stat-box-val.text-red {
+  color: #ff453a;
+}
+
+/* Table Financial Cells */
+.admin-fin-cell {
+  white-space: nowrap;
+}
+
+.admin-fin-price {
+  font-weight: 700;
+  color: var(--text-main);
+  font-size: 13.5px;
+}
+
+.admin-fin-discount {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ff453a;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-fin-driver {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #34c759;
+}
+
+.admin-fin-revenue {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--accent-gold);
+}
+
+.admin-promo-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 69, 58, 0.12);
+  border: 1px solid rgba(255, 69, 58, 0.25);
+  color: #ff453a;
+  width: fit-content;
+}
+
+.dashboard-layout.light-theme .booking-stat-box {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.dashboard-layout.light-theme .booking-stat-box.highlight {
+  background: #fffdf5;
+  border-color: #f6e05e;
+}
+
+.spin-anim {
+  animation: adminIconSpin 0.8s linear infinite;
+}
+
+@keyframes adminIconSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.admin-data-table tfoot td {
+  border-top: 2px solid rgba(255, 255, 255, 0.08);
+}
+
+.dashboard-layout.light-theme .admin-data-table tfoot {
+  background: #f8fafc !important;
+}
+
+.dashboard-layout.light-theme .admin-data-table tfoot td {
+  border-top: 2px solid #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+

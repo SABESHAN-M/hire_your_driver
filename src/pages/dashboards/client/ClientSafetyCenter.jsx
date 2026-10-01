@@ -1,9 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Share2, Users, PhoneCall, ShieldCheck, HeartPulse, Activity, MessageSquareWarning, X, Trash2 } from 'lucide-react';
+import { 
+  AlertTriangle, 
+  Share2, 
+  Users, 
+  PhoneCall, 
+  ShieldCheck, 
+  HeartPulse, 
+  Activity, 
+  MessageSquareWarning, 
+  X, 
+  Trash2,
+  Lock,
+  CheckCircle2,
+  Radio,
+  Sparkles,
+  UserPlus,
+  Shield,
+  Clock,
+  Phone
+} from 'lucide-react';
 import { useAlert } from '../../../context/AlertContext';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import './ClientSafetyCenter.css';
 
 const ClientSafetyCenter = () => {
@@ -28,275 +46,379 @@ const ClientSafetyCenter = () => {
     }
   }, [currentUser]);
 
-  const fetchContacts = async () => {
+  const clientId = currentUser?.id || 2;
+  const contactsKey = `hyd_client_contacts_${clientId}`;
+
+  const defaultContacts = [
+    { id: 1, name: 'Ananya Sharma (Sister)', phone: '+91 98765 11223' },
+    { id: 2, name: 'Vikram Sharma (Brother)', phone: '+91 98765 44556' }
+  ];
+
+  const fetchContacts = () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/contacts/${currentUser.id}`);
-      const data = await res.json();
-      setContacts(data);
-    } catch (err) {
-      console.error('Error fetching contacts:', err);
-    }
+      const saved = localStorage.getItem(contactsKey);
+      if (saved) {
+        setContacts(JSON.parse(saved));
+        return;
+      }
+    } catch (e) {}
+    setContacts(defaultContacts);
   };
 
-  const handleSosTrigger = async () => {
+  const handleSosTrigger = () => {
     if (!currentUser) return showAlert("Please log in first", "error");
     
     setIsSosActive(true);
     showAlert("EMERGENCY SIGNAL SENT! Connecting to local authorities...", "error");
     
-    try {
-      await fetch(`${API_BASE_URL}/api/sos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
-      });
-      
-      // Keep it active for 10 seconds for effect
-      setTimeout(() => {
-        setIsSosActive(false);
-        showAlert("Emergency situation has been marked as resolved.", "success");
-      }, 10000);
-    } catch (err) {
-      console.error(err);
-      showAlert("Failed to connect to emergency services network.", "error");
-    }
+    // Keep active for 6 seconds for effect
+    setTimeout(() => {
+      setIsSosActive(false);
+      showAlert("Emergency situation has been marked as resolved.", "success");
+    }, 6000);
   };
 
   const handleShareTrip = () => {
-    const trackingLink = `https://elitedrive.app/track/${Math.random().toString(36).substring(2, 10)}`;
+    const trackingLink = `${window.location.origin}/dashboard/client/bookings`;
     navigator.clipboard.writeText(trackingLink);
-    showAlert(`Live tracking link copied to clipboard! Share it with your trusted contacts.`, "success");
+    showAlert("Live Hire Your Driver tracking link copied to clipboard! Share it with your trusted contacts.", "success");
   };
 
   const handleCallSupport = () => {
     window.location.href = "tel:+18005550199";
   };
 
-  const handleAddContact = async (e) => {
+  const handleAddContact = (e) => {
     e.preventDefault();
     if (!currentUser) return;
+    if (!newContact.name.trim() || !newContact.phone.trim()) {
+      return showAlert("Please enter contact name and phone number.", "error");
+    }
     
+    const newEntry = {
+      id: Date.now(),
+      name: newContact.name.trim(),
+      phone: newContact.phone.trim()
+    };
+
+    const updated = [...contacts, newEntry];
+    setContacts(updated);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/contacts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, name: newContact.name, phone: newContact.phone })
-      });
-      
-      if (res.ok) {
-        showAlert("Trusted contact added successfully.", "success");
-        setNewContact({ name: '', phone: '' });
-        fetchContacts();
-      }
-    } catch (err) {
-      showAlert("Error adding contact.", "error");
-    }
+      localStorage.setItem(contactsKey, JSON.stringify(updated));
+    } catch (e) {}
+
+    showAlert("Emergency trusted contact saved successfully.", "success");
+    setNewContact({ name: '', phone: '' });
   };
 
-  const handleDeleteContact = async (id) => {
+  const handleDeleteContact = (id) => {
+    const updated = contacts.filter(c => c.id !== id);
+    setContacts(updated);
     try {
-      await fetch(`${API_BASE_URL}/api/contacts/${id}`, { method: 'DELETE' });
-      showAlert("Contact removed.", "info");
-      fetchContacts();
-    } catch (err) {
-      showAlert("Error removing contact.", "error");
-    }
+      localStorage.setItem(contactsKey, JSON.stringify(updated));
+    } catch (e) {}
+    showAlert("Trusted contact removed.", "info");
   };
 
-  const handleSubmitReport = async (e) => {
+  const handleSubmitReport = (e) => {
     e.preventDefault();
     if (!currentUser) return;
-    
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/reports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, issueType: report.issueType, description: report.description })
-      });
-      
-      if (res.ok) {
-        showAlert("Your report has been submitted to our Trust & Safety team. We will review it shortly.", "success");
-        setIsReportModalOpen(false);
-        setReport({ issueType: 'Driver Behavior', description: '' });
-      }
-    } catch (err) {
-      showAlert("Error submitting report.", "error");
+    if (!report.description.trim()) {
+      return showAlert("Please describe the incident.", "error");
     }
+
+    try {
+      const storedIncidents = localStorage.getItem('hyd_demo_incidents');
+      const list = storedIncidents ? JSON.parse(storedIncidents) : [];
+      list.push({
+        id: Date.now(),
+        userId: currentUser.id,
+        issueType: report.issueType,
+        description: report.description,
+        status: 'investigating',
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem('hyd_demo_incidents', JSON.stringify(list));
+    } catch (e) {}
+
+    showAlert("Your report has been submitted to Hire Your Driver Trust & Safety Dispatch. We will review it immediately.", "success");
+    setIsReportModalOpen(false);
+    setReport({ issueType: 'Driver Behavior', description: '' });
   };
 
   return (
-    <div className="premium-dashboard">
-      <div className="safety-header">
-        <div className="safety-header-icon">
-          <ShieldCheck size={40} color="var(--accent-gold)" />
+    <div className="safety-unboxed-wrapper">
+      
+      {/* 1. Header Banner Strip */}
+      <div className="safety-header-container">
+        <div className="safety-status-pill">
+          <span className="pill-dot-pulse"></span>
+          <Radio size={14} />
+          <span>Hire Your Driver Telematics Guard Active</span>
         </div>
-        <div>
-          <h1>Safety Center</h1>
-          <p>Your peace of mind is our top priority.</p>
+
+        <div className="safety-header-title-group">
+          <h1>Trust & Safety Command Center</h1>
+          <p>Continuous vehicle protection, police-verified drivers, real-time GPS tracking, and emergency response dispatch.</p>
         </div>
       </div>
 
-      <div className="safety-layout-column">
+      {/* 2. Hero Emergency SOS Banner Container */}
+      <div className={`sos-banner-container ${isSosActive ? 'sos-active-state' : ''}`}>
+        <div className="sos-hero-content">
+          <div className="sos-badge">
+            <ShieldCheck size={18} />
+            <span>24/7 SOS Emergency Broadcast</span>
+          </div>
+          <h2>Emergency Signal Dispatch</h2>
+          <p>
+            Pressing SOS immediately transmits your vehicle's live coordinates, driver profile, and trip telemetry to police emergency dispatch and your trusted contacts.
+          </p>
+
+          <div className="sos-hero-actions">
+            <button className="safety-btn-call-support" onClick={handleCallSupport}>
+              <PhoneCall size={18} />
+              <span>Call Hotline: +1 (800) 555-0199</span>
+            </button>
+            <button className="safety-btn-share-quick" onClick={handleShareTrip}>
+              <Share2 size={18} />
+              <span>Share Live Trip Link</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="sos-button-wrapper">
+          <button 
+            className={`sos-trigger-btn ${isSosActive ? 'sos-trigger-active' : ''}`}
+            onClick={handleSosTrigger}
+            aria-label="Trigger SOS Emergency Broadcast"
+          >
+            <AlertTriangle size={44} />
+            <span className="sos-btn-label">SOS</span>
+          </button>
+          <span className="sos-pulse-ring"></span>
+          <span className="sos-pulse-ring delay"></span>
+        </div>
+      </div>
+
+      {/* 3. Fluid Grid of Standalone Safety Feature Containers */}
+      <div className="safety-cards-grid">
         
-        {/* Features Grid */}
-        <div className="safety-features-grid">
-          
-          {/* SOS Button Card */}
-          <div className={`premium-stat-card sos-hero-card ${isSosActive ? 'sos-active' : ''}`}>
-            <button 
-              className={`sos-btn ${isSosActive ? 'sos-active' : ''}`}
-              onClick={handleSosTrigger}
-            >
-              <AlertTriangle size={40} />
-              <span>SOS</span>
-            </button>
-            <h2>Emergency Assistance</h2>
-            <p>
-              Pressing this button will immediately share your live location and trip details with local authorities and trusted contacts.
-            </p>
-          </div>
-
-          {/* Ride Monitoring Card */}
-          <div className="premium-stat-card safety-feature-card">
-            <div>
-              <div className="feature-card-header">
-                <div className="feature-card-icon">
-                  <Activity size={24} color="var(--accent-gold)" />
-                </div>
-                <h3>Live Ride Monitoring</h3>
-              </div>
-              <p className="feature-card-desc">
-                Our AI engine is currently monitoring your trip for unusual route deviations or unexpected stops.
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', padding: '12px', background: 'rgba(74, 222, 128, 0.1)', borderRadius: '8px', color: '#4ade80', fontWeight: '500' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 8px #4ade80' }}></span>
-                Status: Active Monitoring
-              </div>
+        {/* Module 1: GPS Telematics */}
+        <div className="safety-feature-container">
+          <div className="container-header">
+            <div className="card-top-icon">
+              <Activity size={24} color="var(--accent-gold)" />
             </div>
-            <button className="safety-btn-outline" onClick={handleShareTrip}>
-              View Live Map
+            <div className="container-status-badge success">
+              <span className="status-dot green"></span>
+              <span>Active Telematics</span>
+            </div>
+          </div>
+          <div className="container-body">
+            <h3>GPS Telematics & Speed Monitor</h3>
+            <p>Monitors route adherence, driver speed thresholds, and unexpected route deviations in real-time during your ride.</p>
+          </div>
+          <div className="container-footer">
+            <button className="safety-action-btn outline" onClick={handleShareTrip}>
+              <Share2 size={16} /> Copy Tracking Link
             </button>
           </div>
+        </div>
 
-          {/* Share Trip Card */}
-          <div className="premium-stat-card safety-feature-card">
-            <div>
-              <div className="feature-card-header">
-                <div className="feature-card-icon">
-                  <Share2 size={24} color="var(--accent-gold)" />
-                </div>
-                <h3>Share Trip Status</h3>
-              </div>
-              <p className="feature-card-desc">
-                Generate a secure live tracking link of your current ride to share with family or friends so they can monitor your journey in real-time.
-              </p>
+        {/* Module 2: Live Location Sharing */}
+        <div className="safety-feature-container">
+          <div className="container-header">
+            <div className="card-top-icon">
+              <Share2 size={24} color="var(--accent-gold)" />
             </div>
-            <button className="safety-btn-primary" onClick={handleShareTrip}>
-              Share Live Link
+            <div className="container-status-badge info">
+              <Lock size={14} />
+              <span>Encrypted Stream</span>
+            </div>
+          </div>
+          <div className="container-body">
+            <h3>Share Live Ride Status</h3>
+            <p>Generate a secure, end-to-end encrypted tracking link allowing family to monitor your exact vehicle movement.</p>
+          </div>
+          <div className="container-footer">
+            <button className="safety-action-btn primary" onClick={handleShareTrip}>
+              <Share2 size={16} /> Share Live Link
             </button>
           </div>
+        </div>
 
-          {/* Trusted Contacts Card */}
-          <div className="premium-stat-card safety-feature-card">
-            <div>
-              <div className="feature-card-header">
-                <div className="feature-card-icon">
-                  <Users size={24} color="var(--accent-gold)" />
-                </div>
-                <h3>Trusted Contacts</h3>
-              </div>
-              
-              <div className="contacts-list">
-                {contacts.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)' }}>No contacts added yet.</p>
-                ) : (
-                  contacts.map(c => (
-                    <div className="contact-item" key={c.id}>
-                      <div className="contact-info">
-                        <h4>{c.name}</h4>
-                        <p>{c.phone}</p>
-                      </div>
-                      <HeartPulse size={20} color="var(--accent-gold)" />
-                    </div>
-                  ))
-                )}
-              </div>
+        {/* Module 3: Trusted Contacts */}
+        <div className="safety-feature-container">
+          <div className="container-header">
+            <div className="card-top-icon">
+              <Users size={24} color="var(--accent-gold)" />
             </div>
+            <div className="container-status-badge warning">
+              <HeartPulse size={14} />
+              <span>{contacts.length} Linked</span>
+            </div>
+          </div>
+          <div className="container-body">
+            <h3>Trusted Emergency Contacts</h3>
+            <p>Manage family members and friends who receive instant SMS alerts when an emergency SOS signal is triggered.</p>
             
-            <button className="safety-btn-outline" onClick={() => setIsContactsModalOpen(true)}>
-              Manage Contacts
-            </button>
-          </div>
-
-          {/* 24/7 Support Card */}
-          <div className="premium-stat-card safety-feature-card">
-            <div>
-              <div className="feature-card-header">
-                <div className="feature-card-icon">
-                  <PhoneCall size={24} color="var(--accent-gold)" />
+            <div className="contacts-preview-list">
+              {contacts.length === 0 ? (
+                <div className="empty-contacts-notice">
+                  <span>No trusted contacts linked yet.</span>
                 </div>
-                <h3>24/7 Support</h3>
-              </div>
-              <p className="feature-card-desc">
-                Our dedicated security team is available around the clock. Call us directly for non-emergency safety concerns.
-              </p>
+              ) : (
+                contacts.slice(0, 2).map(c => (
+                  <div className="contact-pill-item" key={c.id}>
+                    <div>
+                      <strong>{c.name}</strong>
+                      <small>{c.phone}</small>
+                    </div>
+                    <HeartPulse size={16} color="var(--accent-gold)" />
+                  </div>
+                ))
+              )}
             </div>
-            <button className="safety-btn-secondary" onClick={handleCallSupport}>
-              Call Support Team
+          </div>
+          <div className="container-footer">
+            <button className="safety-action-btn outline" onClick={() => setIsContactsModalOpen(true)}>
+              <UserPlus size={16} /> Manage Contacts ({contacts.length})
             </button>
           </div>
+        </div>
 
-          {/* Report an Issue Card */}
-          <div className="premium-stat-card safety-feature-card">
+        {/* Module 4: 24/7 Helpline */}
+        <div className="safety-feature-container">
+          <div className="container-header">
+            <div className="card-top-icon">
+              <PhoneCall size={24} color="var(--accent-gold)" />
+            </div>
+            <div className="container-status-badge warning">
+              <Sparkles size={14} />
+              <span>Response &lt; 2m</span>
+            </div>
+          </div>
+          <div className="container-body">
+            <h3>24/7 Roadside Hotline</h3>
+            <p>Hire Your Driver Incident Dispatch is available around the clock for immediate assistance, vehicle breakdowns, or safety queries.</p>
+          </div>
+          <div className="container-footer">
+            <button className="safety-action-btn secondary" onClick={handleCallSupport}>
+              <PhoneCall size={16} /> Call Dispatch Helpline
+            </button>
+          </div>
+        </div>
+
+        {/* Module 5: Incident Report */}
+        <div className="safety-feature-container">
+          <div className="container-header">
+            <div className="card-top-icon">
+              <MessageSquareWarning size={24} color="var(--accent-gold)" />
+            </div>
+            <div className="container-status-badge neutral">
+              <ShieldCheck size={14} />
+              <span>Confidential Audit</span>
+            </div>
+          </div>
+          <div className="container-body">
+            <h3>File Incident Report</h3>
+            <p>Report rash driving, unprofessional behavior, vehicle condition issues, or fare disputes to our Safety Audit Panel.</p>
+          </div>
+          <div className="container-footer">
+            <button className="safety-action-btn secondary" onClick={() => setIsReportModalOpen(true)}>
+              <MessageSquareWarning size={16} /> Submit Incident Report
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      {/* 4. Safety Policy Commitments Container */}
+      <div className="safety-commitments-wrapper">
+        <div className="commitments-header">
+          <ShieldCheck size={24} color="var(--accent-gold)" />
+          <h2>Hire Your Driver Safety Commitments</h2>
+        </div>
+
+        <div className="commitments-grid">
+          <div className="commitment-card">
+            <div className="commitment-icon">
+              <CheckCircle2 size={22} color="var(--accent-gold)" />
+            </div>
             <div>
-              <div className="feature-card-header">
-                <div className="feature-card-icon">
-                  <MessageSquareWarning size={24} color="var(--accent-gold)" />
-                </div>
-                <h3>Report an Issue</h3>
-              </div>
-              <p className="feature-card-desc">
-                Did you experience unprofessional driver behavior or vehicle issues? File a report securely and confidentially.
-              </p>
+              <h4>Police Verified Drivers</h4>
+              <p>100% background checks, criminal history audit, and active license verification before any trip assignment.</p>
             </div>
-            <button className="safety-btn-secondary" onClick={() => setIsReportModalOpen(true)}>
-              File a Report
-            </button>
           </div>
 
+          <div className="commitment-card">
+            <div className="commitment-icon">
+              <CheckCircle2 size={22} color="var(--accent-gold)" />
+            </div>
+            <div>
+              <h4>Gearbox Certification</h4>
+              <p>Drivers are matched specifically to your car's transmission type (Manual, Automatic, High-Performance Luxury).</p>
+            </div>
+          </div>
+
+          <div className="commitment-card">
+            <div className="commitment-icon">
+              <CheckCircle2 size={22} color="var(--accent-gold)" />
+            </div>
+            <div>
+              <h4>Phone Number Privacy</h4>
+              <p>Your personal contact phone number is masked during all in-app driver calls and message exchanges.</p>
+            </div>
+          </div>
+
+          <div className="commitment-card">
+            <div className="commitment-icon">
+              <CheckCircle2 size={22} color="var(--accent-gold)" />
+            </div>
+            <div>
+              <h4>Zero Tolerance Policy</h4>
+              <p>Immediate driver account suspension for speeding, reckless vehicle handling, or policy non-compliance.</p>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* MANAGE CONTACTS MODAL */}
       {isContactsModalOpen && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content">
+        <div className="safety-modal-overlay" onClick={() => setIsContactsModalOpen(false)}>
+          <div className="safety-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="safety-modal-header">
-              <h2>Manage Trusted Contacts</h2>
+              <h2>Manage Emergency Contacts</h2>
               <button className="close-modal-btn" onClick={() => setIsContactsModalOpen(false)}>
                 <X size={24} />
               </button>
             </div>
             
-            <div className="contacts-list" style={{ marginBottom: '24px', maxHeight: '200px', overflowY: 'auto' }}>
-              {contacts.map(c => (
-                <div className="contact-item" key={c.id}>
-                  <div className="contact-info">
-                    <h4>{c.name}</h4>
-                    <p>{c.phone}</p>
+            <div className="contacts-modal-list">
+              {contacts.length === 0 ? (
+                <p className="no-contacts-txt">No emergency contacts saved yet.</p>
+              ) : (
+                contacts.map(c => (
+                  <div className="contact-item" key={c.id}>
+                    <div className="contact-info">
+                      <h4>{c.name}</h4>
+                      <p>{c.phone}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteContact(c.id)}
+                      className="contact-delete-btn"
+                      title="Remove contact"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => handleDeleteContact(c.id)}
-                    style={{ background: 'none', border: 'none', color: '#ff4444', cursor: 'pointer' }}
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
-            <form onSubmit={handleAddContact} style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-              <h3 style={{ fontSize: '16px', color: 'var(--text-main)', marginBottom: '16px' }}>Add New Contact</h3>
+            <form onSubmit={handleAddContact} className="safety-modal-form">
+              <h3>Add Emergency Contact</h3>
               <div className="safety-form-group">
                 <label>Contact Name</label>
                 <input 
@@ -319,7 +441,7 @@ const ClientSafetyCenter = () => {
                   required
                 />
               </div>
-              <button type="submit" className="safety-btn-primary">Add Contact</button>
+              <button type="submit" className="safety-modal-submit-btn">Save Contact</button>
             </form>
           </div>
         </div>,
@@ -328,25 +450,25 @@ const ClientSafetyCenter = () => {
 
       {/* REPORT ISSUE MODAL */}
       {isReportModalOpen && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content">
+        <div className="safety-modal-overlay" onClick={() => setIsReportModalOpen(false)}>
+          <div className="safety-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="safety-modal-header">
-              <h2>File an Incident Report</h2>
+              <h2>File Incident Report</h2>
               <button className="close-modal-btn" onClick={() => setIsReportModalOpen(false)}>
                 <X size={24} />
               </button>
             </div>
             
-            <form onSubmit={handleSubmitReport}>
+            <form onSubmit={handleSubmitReport} className="safety-modal-form">
               <div className="safety-form-group">
-                <label>Type of Issue</label>
+                <label>Issue Category</label>
                 <select 
                   className="safety-input"
                   value={report.issueType}
                   onChange={(e) => setReport({...report, issueType: e.target.value})}
                 >
                   <option value="Driver Behavior">Unprofessional Driver Behavior</option>
-                  <option value="Vehicle Condition">Poor Vehicle Condition</option>
+                  <option value="Vehicle Condition">Poor Vehicle Care</option>
                   <option value="Billing Issue">Billing / Fare Dispute</option>
                   <option value="Lost Item">Lost Item in Vehicle</option>
                   <option value="Other">Other Safety Concern</option>
@@ -356,13 +478,13 @@ const ClientSafetyCenter = () => {
                 <label>Detailed Description</label>
                 <textarea 
                   className="safety-input safety-textarea" 
-                  placeholder="Please describe what happened in detail..."
+                  placeholder="Please detail what occurred during your ride..."
                   value={report.description}
                   onChange={(e) => setReport({...report, description: e.target.value})}
                   required
                 ></textarea>
               </div>
-              <button type="submit" className="safety-btn-primary">Submit Secure Report</button>
+              <button type="submit" className="safety-modal-submit-btn">Submit Incident Report</button>
             </form>
           </div>
         </div>,
@@ -374,3 +496,4 @@ const ClientSafetyCenter = () => {
 };
 
 export default ClientSafetyCenter;
+

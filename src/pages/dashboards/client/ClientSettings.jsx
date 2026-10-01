@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { Settings as SettingsIcon, ShieldAlert, Bell, Lock, ToggleLeft, Save, Moon, Sun } from 'lucide-react';
 import './ClientSettings.css';
 
@@ -70,7 +69,7 @@ const CustomDropdown = ({ options, value, onChange }) => {
 
 const ClientSettings = () => {
   const { theme, toggleTheme } = useTheme();
-  const { currentUser } = useAuth();
+  const { currentUser, openLogin } = useAuth();
   const { showAlert } = useAlert();
 
   const [activeTab, setActiveTab] = useState('general');
@@ -105,33 +104,14 @@ const ClientSettings = () => {
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  const saveSettings = async (newGeneral = generalPrefs, newNotif = notificationPrefs, newSafety = safetyPrefs) => {
+  const saveSettings = (newGeneral = generalPrefs, newNotif = notificationPrefs, newSafety = safetyPrefs) => {
     if (!currentUser?.id) return false;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sidebarCompact: newGeneral.sidebarCompact,
-          dutyType: newGeneral.dutyType,
-          transmission: newGeneral.transmission,
-          carModel: newGeneral.carModel,
-          silentRide: newGeneral.silentRide,
-          smsAlerts: newNotif.smsAlerts,
-          emailAlerts: newNotif.emailAlerts,
-          pushNotifications: newNotif.pushNotifications,
-          sosContactPhone: newSafety.sosContactPhone,
-          autoAlertSos: newSafety.autoAlertSos
-        })
-      });
-      if (!res.ok) throw new Error('Failed to persist settings in database.');
-      
-      // Also update local storage for layout/caching
       localStorage.setItem(`sidebarCompact_${currentUser.id}`, newGeneral.sidebarCompact ? 'true' : 'false');
       localStorage.setItem(`ridePreferences_${currentUser.id}`, JSON.stringify({
         dutyType: newGeneral.dutyType,
         transmission: newGeneral.transmission,
-        carModel: newGeneral.carModel.trim(),
+        carModel: (newGeneral.carModel || '').trim(),
         silentRide: newGeneral.silentRide
       }));
       localStorage.setItem(`notificationSettings_${currentUser.id}`, JSON.stringify(newNotif));
@@ -140,83 +120,42 @@ const ClientSettings = () => {
       window.dispatchEvent(new Event('storage'));
       return true;
     } catch (err) {
-      console.error('Error saving settings:', err);
-      showAlert(err.message || 'Error saving settings.', 'error');
+      console.error('Error saving settings locally:', err);
       return false;
     }
   };
 
-  // Load preferences from database/localStorage on mount
+  // Load preferences from localStorage on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      if (!currentUser?.id) return;
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`);
-        if (res.ok) {
-          const data = await res.json();
-          const loadedGeneral = {
-            sidebarCompact: data.sidebar_compact === 1,
-            dutyType: data.duty_type || 'Inside City',
-            transmission: data.transmission || 'Automatic',
-            carModel: data.car_model || '',
-            silentRide: data.silent_ride === 1
-          };
-          const loadedNotif = {
-            smsAlerts: data.sms_alerts === 1,
-            emailAlerts: data.email_alerts === 1,
-            pushNotifications: data.push_notifications === 1
-          };
-          const loadedSafety = {
-            sosContactPhone: data.sos_contact_phone || '',
-            autoAlertSos: data.auto_alert_sos === 1
-          };
-
-          setGeneralPrefs(loadedGeneral);
-          setNotificationPrefs(loadedNotif);
-          setSafetyPrefs(loadedSafety);
-
-          localStorage.setItem(`sidebarCompact_${currentUser.id}`, loadedGeneral.sidebarCompact ? 'true' : 'false');
-          localStorage.setItem(`ridePreferences_${currentUser.id}`, JSON.stringify({
-            dutyType: loadedGeneral.dutyType,
-            transmission: loadedGeneral.transmission,
-            carModel: loadedGeneral.carModel,
-            silentRide: loadedGeneral.silentRide
-          }));
-          localStorage.setItem(`notificationSettings_${currentUser.id}`, JSON.stringify(loadedNotif));
-          localStorage.setItem(`safetySettings_${currentUser.id}`, JSON.stringify(loadedSafety));
-          window.dispatchEvent(new Event('storage'));
-        }
-      } catch (err) {
-        console.error('Error loading settings from database, falling back to local storage:', err);
-        // Fallback to local storage
-        const savedPrefs = localStorage.getItem(`ridePreferences_${currentUser.id}`);
-        const isCompact = localStorage.getItem(`sidebarCompact_${currentUser.id}`) === 'true';
-        if (savedPrefs) {
-          const parsed = JSON.parse(savedPrefs);
-          setGeneralPrefs({
-            sidebarCompact: isCompact,
-            dutyType: parsed.dutyType || 'Inside City',
-            transmission: parsed.transmission || 'Automatic',
-            carModel: parsed.carModel || '',
-            silentRide: parsed.silentRide || false
-          });
-        } else {
-          setGeneralPrefs(prev => ({ ...prev, sidebarCompact: isCompact }));
-        }
-
-        const savedNotifs = localStorage.getItem(`notificationSettings_${currentUser.id}`);
-        if (savedNotifs) {
-          setNotificationPrefs(JSON.parse(savedNotifs));
-        }
-
-        const savedSafety = localStorage.getItem(`safetySettings_${currentUser.id}`);
-        if (savedSafety) {
-          setSafetyPrefs(JSON.parse(savedSafety));
-        }
+    if (!currentUser?.id) return;
+    try {
+      const savedPrefs = localStorage.getItem(`ridePreferences_${currentUser.id}`);
+      const isCompact = localStorage.getItem(`sidebarCompact_${currentUser.id}`) === 'true';
+      if (savedPrefs) {
+        const parsed = JSON.parse(savedPrefs);
+        setGeneralPrefs({
+          sidebarCompact: isCompact,
+          dutyType: parsed.dutyType || 'Inside City',
+          transmission: parsed.transmission || 'Automatic',
+          carModel: parsed.carModel || '',
+          silentRide: !!parsed.silentRide
+        });
+      } else {
+        setGeneralPrefs(prev => ({ ...prev, sidebarCompact: isCompact }));
       }
-    };
 
-    loadSettings();
+      const savedNotifs = localStorage.getItem(`notificationSettings_${currentUser.id}`);
+      if (savedNotifs) {
+        setNotificationPrefs(JSON.parse(savedNotifs));
+      }
+
+      const savedSafety = localStorage.getItem(`safetySettings_${currentUser.id}`);
+      if (savedSafety) {
+        setSafetyPrefs(JSON.parse(savedSafety));
+      }
+    } catch (e) {
+      console.error('Error loading settings from local storage:', e);
+    }
   }, [currentUser]);
 
   // Handle Input Changes for general/notifications/safety
@@ -316,37 +255,31 @@ const ClientSettings = () => {
     }
 
     setIsChangingPassword(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to update credentials');
-      }
-
+    setTimeout(() => {
       showAlert('Password updated successfully!', 'success');
       setSecurityForm({
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
-    } catch (err) {
-      console.error(err);
-      showAlert(err.message || 'Error updating password', 'error');
-    } finally {
       setIsChangingPassword(false);
-    }
+    }, 400);
   };
+
+  if (!currentUser) {
+    return (
+      <div className="settings-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 20px', textAlign: 'center' }}>
+        <SettingsIcon size={48} color="var(--accent-gold)" style={{ marginBottom: '20px' }} />
+        <h3 style={{ color: '#fff', marginBottom: '10px' }}>Guest Settings View</h3>
+        <p style={{ color: '#aaa', maxWidth: '400px', marginBottom: '24px' }}>
+          You are browsing as a Guest Client. To configure layouts, ride preferences, SOS backup sync, and manage credentials, please log in or create an account.
+        </p>
+        <button onClick={openLogin} className="primary-btn">
+          Log In / Register
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="settings-container">

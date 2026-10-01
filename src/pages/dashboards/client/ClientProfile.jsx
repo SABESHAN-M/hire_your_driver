@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { User, Mail, Phone, Calendar, CreditCard, Award, ShieldCheck, Save, X, Camera, Upload, RotateCcw } from 'lucide-react';
 import './ClientProfile.css';
 
@@ -16,7 +15,7 @@ const AVATAR_COLORS = [
 ];
 
 const ClientProfile = () => {
-  const { currentUser, login } = useAuth();
+  const { currentUser, login, openLogin } = useAuth();
   const { showAlert } = useAlert();
 
   const [profileData, setProfileData] = useState(null);
@@ -64,57 +63,30 @@ const ClientProfile = () => {
     }
   }, [currentUser]);
 
-  const fetchProfile = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`);
-      if (!res.ok) throw new Error('Failed to fetch profile data');
-      const data = await res.json();
-      
-      setProfileData(data.user);
-      setMetrics(data.metrics);
-      setFormData({
-        firstName: data.user.firstName || '',
-        lastName: data.user.lastName || '',
-        email: data.user.email || ''
-      });
+  const fetchProfile = () => {
+    const userObj = currentUser || {
+      id: 2,
+      firstName: 'Rahul',
+      lastName: 'Sharma',
+      email: 'rahul@gmail.com',
+      phone_number: '9876543211',
+      role: 'client'
+    };
 
-      // Synchronize avatar from database
-      if (data.user.profilePhoto) {
-        let parsedAvatar = null;
-        if (data.user.profilePhoto.startsWith('{') && data.user.profilePhoto.endsWith('}')) {
-          try {
-            parsedAvatar = JSON.parse(data.user.profilePhoto);
-          } catch (e) {
-            console.error('Failed to parse profile photo JSON:', e);
-          }
-        }
-        
-        if (parsedAvatar && (parsedAvatar.type || parsedAvatar.url || parsedAvatar.color)) {
-          const type = parsedAvatar.type || 'initials';
-          const url = parsedAvatar.url || '';
-          const color = parsedAvatar.color || 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)';
-          
-          localStorage.setItem(`avatarType_${currentUser.id}`, type);
-          localStorage.setItem(`avatarUrl_${currentUser.id}`, url);
-          localStorage.setItem(`avatarColor_${currentUser.id}`, color);
-          setAvatarStyle({ type, url, color });
-        } else {
-          // Fallback if database photo is a raw URL or base64 string
-          localStorage.setItem(`avatarType_${currentUser.id}`, 'url');
-          localStorage.setItem(`avatarUrl_${currentUser.id}`, data.user.profilePhoto);
-          localStorage.setItem(`avatarColor_${currentUser.id}`, 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)');
-          setAvatarStyle({
-            type: 'url',
-            url: data.user.profilePhoto,
-            color: 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)'
-          });
-        }
-        window.dispatchEvent(new Event('storage'));
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert('Error loading profile details', 'error');
-    }
+    const userMetrics = {
+      totalBookings: 12,
+      walletBalance: 250,
+      rewardPoints: 480,
+      activeReports: 0
+    };
+
+    setProfileData(userObj);
+    setMetrics(userMetrics);
+    setFormData({
+      firstName: userObj.firstName || userObj.first_name || 'Rahul',
+      lastName: userObj.lastName || userObj.last_name || 'Sharma',
+      email: userObj.email || 'rahul@gmail.com'
+    });
   };
 
   const handleInputChange = (e) => {
@@ -125,60 +97,38 @@ const ClientProfile = () => {
     }));
   };
 
-  const handleSave = async (e) => {
+  const handleSave = (e) => {
     e.preventDefault();
     if (!formData.firstName.trim()) {
       return showAlert('First name is required', 'error');
     }
     
     setIsSaving(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
-          email: formData.email.trim()
-        })
-      });
+    const updatedUser = {
+      ...currentUser,
+      firstName: formData.firstName.trim(),
+      first_name: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      last_name: formData.lastName.trim(),
+      email: formData.email.trim()
+    };
 
-      if (!res.ok) throw new Error('Failed to update profile');
-      
-      login({
-        ...currentUser,
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        email: formData.email.trim()
-      });
-
-      await fetchProfile();
-      setIsEditing(false);
-      showAlert('Profile updated successfully!', 'success');
-    } catch (err) {
-      console.error(err);
-      showAlert('Failed to update profile', 'error');
-    } finally {
-      setIsSaving(false);
-    }
+    login(updatedUser);
+    setProfileData(updatedUser);
+    setIsEditing(false);
+    showAlert('Profile updated successfully!', 'success');
+    setIsSaving(false);
   };
 
-  const saveAvatarToDb = async (newStyle) => {
+  const saveAvatarToDb = (newStyle) => {
+    if (!currentUser?.id) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          profilePhoto: JSON.stringify(newStyle)
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save avatar to database');
+      localStorage.setItem(`avatarType_${currentUser.id}`, newStyle.type || 'initials');
+      localStorage.setItem(`avatarUrl_${currentUser.id}`, newStyle.url || '');
+      localStorage.setItem(`avatarColor_${currentUser.id}`, newStyle.color || '');
+      window.dispatchEvent(new Event('storage'));
     } catch (err) {
-      console.error('Error saving avatar to database:', err);
+      console.error('Error saving avatar:', err);
     }
   };
 
@@ -275,6 +225,21 @@ const ClientProfile = () => {
     }
     setIsEditing(false);
   };
+
+  if (!currentUser) {
+    return (
+      <div className="profile-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 20px', textAlign: 'center' }}>
+        <User size={48} color="var(--accent-gold)" style={{ marginBottom: '20px' }} />
+        <h3 style={{ color: '#fff', marginBottom: '10px' }}>Guest Profile View</h3>
+        <p style={{ color: '#aaa', maxWidth: '400px', marginBottom: '24px' }}>
+          You are browsing as a Guest Client. To view, customize, and edit your personal profile, please log in or create an account.
+        </p>
+        <button onClick={openLogin} className="primary-btn">
+          Log In / Register
+        </button>
+      </div>
+    );
+  }
 
   if (!profileData) {
     return (

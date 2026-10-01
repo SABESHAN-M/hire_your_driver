@@ -1,14 +1,72 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { CreditCard, Plus, ArrowUpRight, ArrowDownLeft, ShieldCheck, Wallet as WalletIcon, Trash2, X, RefreshCw, Star, ArrowRight, History, TrendingUp, Smartphone } from 'lucide-react';
+import { CreditCard, Plus, ArrowUpRight, ArrowDownLeft, ShieldCheck, Wallet as WalletIcon, Trash2, X, RefreshCw, Star, ArrowRight, History, TrendingUp, Smartphone, ChevronDown, Check } from 'lucide-react';
 import { useAlert } from '../../../context/AlertContext';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import './ClientWallet.css';
+
+function CustomSelect({ name, value, onChange, options = [], icon: IconComponent, placeholder = 'Select option' }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = React.useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => String(opt.value) === String(value)) || options[0];
+
+  const handleSelect = (optValue) => {
+    onChange({ target: { name, value: optValue } });
+    setIsOpen(false);
+  };
+
+  return (
+    <div className={`custom-select-container ${isOpen ? 'open' : ''}`} ref={dropdownRef}>
+      <div 
+        className="custom-select-trigger" 
+        onClick={() => setIsOpen(!isOpen)}
+        tabIndex={0}
+      >
+        <div className="trigger-left">
+          {IconComponent && <IconComponent size={18} className="select-icon" />}
+          <span className="selected-text">{selectedOption ? selectedOption.label : placeholder}</span>
+        </div>
+        <ChevronDown size={16} className={`chevron-icon ${isOpen ? 'rotated' : ''}`} />
+      </div>
+
+      {isOpen && (
+        <div className="custom-select-menu">
+          {options.map((opt) => {
+            const isSelected = String(opt.value) === String(value);
+            return (
+              <div
+                key={opt.value}
+                className={`custom-select-option ${isSelected ? 'selected' : ''}`}
+                onClick={() => handleSelect(opt.value)}
+              >
+                <div className="option-content">
+                  <span className="option-label">{opt.label}</span>
+                  {opt.description && <span className="option-desc">{opt.description}</span>}
+                </div>
+                {isSelected && <Check size={16} className="check-icon" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ClientWallet = () => {
   const { showAlert } = useAlert();
-  const { currentUser } = useAuth();
+  const { currentUser, openLogin } = useAuth();
   
   const [wallet, setWallet] = useState(null);
   const [cards, setCards] = useState([]);
@@ -22,33 +80,71 @@ const ClientWallet = () => {
   const [newCard, setNewCard] = useState({ number: '', expiry: '' });
   const [selectedMethod, setSelectedMethod] = useState('card');
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState('');
+  const [customUpiId, setCustomUpiId] = useState('client@okicici');
   const [transactionFilter, setTransactionFilter] = useState('all');
 
+  const clientId = currentUser?.id || 2;
+  const storageKey = `hyd_client_wallet_data_${clientId}`;
+
+  const defaultInitialClientWallet = {
+    wallet: { id: clientId, user_id: clientId, balance: 250, currency: 'USD', auto_reload: false },
+    cards: [
+      { id: 1, user_id: clientId, card_brand: 'Visa', card_last4: '4242', expiry_date: '12/28' },
+      { id: 2, user_id: clientId, card_brand: 'GPay', card_last4: 'Linked', expiry_date: 'N/A' }
+    ],
+    transactions: [
+      { id: 1, user_id: clientId, amount: 50, transaction_type: 'credit', description: 'Top Up via UPI', created_at: new Date(Date.now() - 3600000 * 5).toISOString() },
+      { id: 2, user_id: clientId, amount: 35, transaction_type: 'debit', description: 'Trip Payment - Booking #HYD-7102', created_at: new Date(Date.now() - 3600000 * 24).toISOString() }
+    ]
+  };
+
+  const getStoredWalletData = () => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {}
+    return defaultInitialClientWallet;
+  };
+
+  const saveWalletData = (data) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(data));
+      localStorage.setItem(`hyd_client_wallet_${clientId}`, JSON.stringify(data.wallet));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
+  };
+
+  const syncData = () => {
+    const data = getStoredWalletData();
+    try {
+      const directWallet = localStorage.getItem(`hyd_client_wallet_${clientId}`);
+      if (directWallet) {
+        const parsed = JSON.parse(directWallet);
+        data.wallet = { ...data.wallet, ...parsed };
+      }
+    } catch (e) {}
+    setWallet(data.wallet);
+    setCards(Array.isArray(data.cards) ? data.cards : []);
+    setTransactions(Array.isArray(data.transactions) ? data.transactions : []);
+  };
+
   useEffect(() => {
-    if (currentUser?.id) {
-      fetchWalletData();
-    }
+    syncData();
+    window.addEventListener('storage', syncData);
+    return () => window.removeEventListener('storage', syncData);
   }, [currentUser]);
 
   useEffect(() => {
-    if (isAddMoneyModalOpen && cards.length > 0) {
-      setSelectedPaymentMethodId(cards[0].id.toString());
+    if (isAddMoneyModalOpen) {
+      if (cards.length > 0) {
+        setSelectedPaymentMethodId(cards[0].id.toString());
+      } else {
+        setSelectedPaymentMethodId('upi_vpa');
+      }
     }
   }, [isAddMoneyModalOpen, cards]);
-
-  const fetchWalletData = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/${currentUser.id}`);
-      const data = await res.json();
-      if (res.ok) {
-        setWallet(data.wallet);
-        setCards(data.cards);
-        setTransactions(data.transactions);
-      }
-    } catch (err) {
-      console.error('Error fetching wallet:', err);
-    }
-  };
 
   const renderPaymentIcon = (brand) => {
     const brandLower = brand.toLowerCase();
@@ -98,111 +194,104 @@ const ClientWallet = () => {
     );
   };
 
-  const handleAddMoney = async (e) => {
+  const handleAddMoney = (e) => {
     e.preventDefault();
     if (!addAmount || isNaN(addAmount) || Number(addAmount) <= 0) {
       return showAlert("Please enter a valid amount", "error");
     }
-    if (cards.length === 0) {
-      return showAlert("Please link a payment method first to add money.", "error");
-    }
 
-    const selectedCard = cards.find(c => c.id.toString() === selectedPaymentMethodId) || cards[0];
-    const methodName = selectedCard.card_last4 === 'Link' 
-      ? selectedCard.card_brand 
-      : `${selectedCard.card_brand} (•••• ${selectedCard.card_last4})`;
+    const amt = Number(addAmount);
+    const updatedWallet = { ...wallet, balance: (wallet?.balance || 0) + amt };
+    const newTx = {
+      id: Date.now(),
+      user_id: clientId,
+      amount: amt,
+      transaction_type: 'credit',
+      description: `Top Up ($${amt.toFixed(2)}) via ${selectedPaymentMethodId === 'upi_vpa' ? 'UPI' : 'Card'}`,
+      created_at: new Date().toISOString()
+    };
+    const updatedTxs = [newTx, ...transactions];
 
+    setWallet(updatedWallet);
+    setTransactions(updatedTxs);
+    saveWalletData({ wallet: updatedWallet, cards, transactions: updatedTxs });
+
+    // Push client notification
     try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/add-money`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: currentUser.id, 
-          amount: Number(addAmount),
-          method: methodName
-        })
+      const rawNotifs = localStorage.getItem('hyd_demo_notifications_client');
+      const list = rawNotifs ? JSON.parse(rawNotifs) : [];
+      list.unshift({
+        id: Date.now(),
+        role: 'client',
+        title: 'Wallet Top-Up Successful',
+        message: `Payment of $${amt.toFixed(2)} successfully credited to your client wallet.`,
+        is_read: 0,
+        created_at: new Date().toISOString()
       });
-      if (res.ok) {
-        showAlert(`Successfully added $${addAmount} via ${methodName}!`, "success");
-        setAddAmount('');
-        setIsAddMoneyModalOpen(false);
-        fetchWalletData();
-      }
-    } catch (err) {
-      showAlert("Failed to add money", "error");
-    }
+      localStorage.setItem('hyd_demo_notifications_client', JSON.stringify(list));
+    } catch (err) {}
+
+    showAlert(`Successfully added $${amt.toFixed(2)} to your wallet!`, "success");
+    setAddAmount('');
+    setIsAddMoneyModalOpen(false);
   };
 
-  const handleAddCard = async (e) => {
+  const handleAddCard = (e) => {
     e.preventDefault();
-    if (newCard.number.length < 16) return showAlert("Invalid card number", "error");
+    const cleanNum = (newCard.number || '').replace(/\s+/g, '');
+    if (cleanNum.length < 12) return showAlert("Please enter a valid card number", "error");
     
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/add-card`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, cardNumber: newCard.number, expiryDate: newCard.expiry })
-      });
-      if (res.ok) {
-        showAlert("Card securely saved.", "success");
-        setNewCard({ number: '', expiry: '' });
-        setIsAddCardModalOpen(false);
-        fetchWalletData();
-      }
-    } catch (err) {
-      showAlert("Failed to add card", "error");
-    }
+    const newCardObj = {
+      id: Date.now(),
+      user_id: clientId,
+      card_brand: 'Visa',
+      card_last4: cleanNum.slice(-4),
+      expiry_date: newCard.expiry || '12/28'
+    };
+
+    const updatedCards = [...cards, newCardObj];
+    setCards(updatedCards);
+    saveWalletData({ wallet, cards: updatedCards, transactions });
+
+    showAlert("Card securely saved.", "success");
+    setNewCard({ number: '', expiry: '' });
+    setIsAddCardModalOpen(false);
   };
 
-  const handleDeleteCard = async (id) => {
-    try {
-      await fetch(`${API_BASE_URL}/api/wallet/card/${id}`, { method: 'DELETE' });
-      showAlert("Card removed successfully.", "info");
-      fetchWalletData();
-    } catch (err) {
-      showAlert("Error removing card", "error");
-    }
+  const handleDeleteCard = (id) => {
+    const updatedCards = cards.filter(c => c.id !== id);
+    setCards(updatedCards);
+    saveWalletData({ wallet, cards: updatedCards, transactions });
+    showAlert("Card removed successfully.", "info");
   };
 
-  const handleToggleReload = async () => {
+  const handleToggleReload = () => {
     if (!wallet) return;
-    try {
-      await fetch(`${API_BASE_URL}/api/wallet/toggle-reload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id, autoReload: !wallet.auto_reload })
-      });
-      fetchWalletData();
-      showAlert(`Auto-reload turned ${!wallet.auto_reload ? 'ON' : 'OFF'}`, "info");
-    } catch (err) {
-      console.error(err);
-    }
+    const newAuto = !wallet.auto_reload;
+    const updatedWallet = { ...wallet, auto_reload: newAuto };
+    setWallet(updatedWallet);
+    saveWalletData({ wallet: updatedWallet, cards, transactions });
+    showAlert(`Auto-reload turned ${newAuto ? 'ON' : 'OFF'}`, "info");
   };
 
   const totalAdded = transactions.filter(t => t.transaction_type === 'credit').reduce((sum, t) => sum + Number(t.amount), 0);
   const totalSpent = transactions.filter(t => t.transaction_type === 'debit').reduce((sum, t) => sum + Number(t.amount), 0);
 
-  const handleLinkThirdParty = async (provider) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/wallet/add-card`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: currentUser.id, 
-          cardNumber: '', 
-          expiryDate: 'N/A',
-          cardBrand: provider,
-          cardLast4: 'Linked'
-        })
-      });
-      if (res.ok) {
-        showAlert(`${provider} linked successfully.`, "success");
-        setIsAddCardModalOpen(false);
-        fetchWalletData();
-      }
-    } catch(e) {
-      showAlert(`Failed to link ${provider}`, "error");
-    }
+  const handleLinkThirdParty = (provider) => {
+    const newCardObj = {
+      id: Date.now(),
+      user_id: clientId,
+      card_brand: provider,
+      card_last4: 'Linked',
+      expiry_date: 'N/A'
+    };
+
+    const updatedCards = [...cards, newCardObj];
+    setCards(updatedCards);
+    saveWalletData({ wallet, cards: updatedCards, transactions });
+
+    showAlert(`${provider} linked successfully.`, "success");
+    setIsAddCardModalOpen(false);
   };
 
   return (
@@ -292,29 +381,33 @@ const ClientWallet = () => {
               {cards.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center', padding: '20px 0' }}>No saved cards found.</p>
               ) : (
-                cards.map(card => (
-                  <div className="saved-card-item" key={card.id}>
-                    <div className="card-details">
-                      {renderPaymentIcon(card.card_brand)}
-                      <div className="card-info">
-                        {card.card_last4.startsWith('Link') ? (
-                          <>
-                            <h4>{card.card_brand}</h4>
-                            <p style={{ color: '#2ecc71', fontWeight: '500', fontSize: '13px', margin: 0 }}>Connected Account</p>
-                          </>
-                        ) : (
-                          <>
-                            <h4>•••• {card.card_last4}</h4>
-                            <p style={{ margin: 0 }}>{card.card_brand} • Expires {card.expiry_date}</p>
-                          </>
-                        )}
+                cards.map(card => {
+                  const brandLower = (card.card_brand || '').toLowerCase();
+                  const isThirdParty = ['gpay', 'apple pay', 'paypal', 'google pay'].includes(brandLower) || (card.card_last4 || '').startsWith('Link') || card.card_last4 === 'Connected';
+                  return (
+                    <div className="saved-card-item" key={card.id}>
+                      <div className="card-details">
+                        {renderPaymentIcon(card.card_brand)}
+                        <div className="card-info">
+                          {isThirdParty ? (
+                            <>
+                              <h4>{card.card_brand}</h4>
+                              <p style={{ color: '#2ecc71', fontWeight: '500', fontSize: '13px', margin: 0 }}>Connected Account</p>
+                            </>
+                          ) : (
+                            <>
+                              <h4>•••• {card.card_last4}</h4>
+                              <p style={{ margin: 0 }}>{card.card_brand} • Expires {card.expiry_date}</p>
+                            </>
+                          )}
+                        </div>
                       </div>
+                      <button className="delete-card-btn" onClick={() => handleDeleteCard(card.id)} title="Remove Card">
+                        <Trash2 size={18} />
+                      </button>
                     </div>
-                    <button className="delete-card-btn" onClick={() => handleDeleteCard(card.id)} title="Remove Card">
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
               
               <button className="wallet-btn-outline" onClick={() => setIsAddCardModalOpen(true)} style={{ marginTop: '8px' }}>
@@ -436,8 +529,8 @@ const ClientWallet = () => {
 
       {/* Add Money Modal */}
       {isAddMoneyModalOpen && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content">
+        <div className="safety-modal-overlay" onClick={() => setIsAddMoneyModalOpen(false)}>
+          <div className="safety-modal-content topup-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="safety-modal-header">
               <h2>Top Up Balance</h2>
               <button className="close-modal-btn" onClick={() => setIsAddMoneyModalOpen(false)}>
@@ -464,26 +557,48 @@ const ClientWallet = () => {
                 />
               </div>
 
-              {cards.length > 0 && (
-                <div className="safety-form-group" style={{ marginTop: '16px' }}>
-                  <label>Select Payment Method</label>
-                  <select
-                    value={selectedPaymentMethodId}
-                    onChange={(e) => setSelectedPaymentMethodId(e.target.value)}
-                    className="safety-input"
-                    style={{ width: '100%', padding: '10px', background: 'var(--bg-darker)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}
-                  >
-                    {cards.map(card => {
-                      const label = card.card_last4.startsWith('Link') 
-                        ? `${card.card_brand} (Linked)` 
+              <div className="safety-form-group" style={{ marginTop: '16px' }}>
+                <label style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-main)', marginBottom: '8px', display: 'block' }}>Select Payment Method</label>
+                <CustomSelect
+                  name="paymentMethodId"
+                  value={selectedPaymentMethodId}
+                  icon={CreditCard}
+                  onChange={(e) => setSelectedPaymentMethodId(e.target.value)}
+                  options={[
+                    ...(cards.map(card => {
+                      const brandLower = (card.card_brand || '').toLowerCase();
+                      const isThirdParty = ['gpay', 'apple pay', 'paypal', 'google pay'].includes(brandLower) || (card.card_last4 || '').startsWith('Link') || card.card_last4 === 'Connected';
+                      const label = isThirdParty 
+                        ? `${card.card_brand} (Connected Account)` 
                         : `${card.card_brand} ending in •••• ${card.card_last4}`;
-                      return (
-                        <option key={card.id} value={card.id}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
+                      return {
+                        value: card.id.toString(),
+                        label: label,
+                        description: isThirdParty ? `Connected digital wallet (${card.card_brand})` : `Saved credit card (${card.card_brand})`
+                      };
+                    })),
+                    { 
+                      value: 'upi_vpa', 
+                      label: 'Instant UPI Payment (BHIM / GPay / PhonePe / Paytm)', 
+                      description: 'Direct transfer using your personal UPI VPA handle' 
+                    }
+                  ]}
+                />
+              </div>
+
+              {selectedPaymentMethodId === 'upi_vpa' && (
+                <div className="safety-form-group" style={{ marginTop: '14px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-main)', marginBottom: '6px', display: 'block' }}>
+                    Enter your UPI ID (VPA)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="safety-input" 
+                    placeholder="e.g. username@okicici or 9876543210@upi"
+                    value={customUpiId}
+                    onChange={(e) => setCustomUpiId(e.target.value)}
+                    required
+                  />
                 </div>
               )}
 

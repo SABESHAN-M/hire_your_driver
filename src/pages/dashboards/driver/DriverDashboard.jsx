@@ -2,10 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   Car, Star, CreditCard, Clock, Check, Square, Play, AlertTriangle, 
-  ShieldCheck, FileText, Award, X
+  ShieldCheck, FileText, Award, X, Ticket, Copy
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
-import { API_BASE_URL } from '../../../config';
 import { useAlert } from '../../../context/AlertContext';
 import './DriverSafetyCenter.css';
 
@@ -30,6 +29,34 @@ const DriverDashboard = () => {
   const [notifications, setNotifications] = useState([]);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [showAllJobs, setShowAllJobs] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(null);
+
+  const extractPromoCode = (item) => {
+    if (!item) return null;
+    if (item.promo_code) return item.promo_code.trim();
+    const text = `${item.title || ''} ${item.message || ''}`;
+    const match = text.match(/(?:promo\s+code|discount\s+code|\bcode\b)\s*[:\-]?\s*['"]?([A-Za-z0-9\-_]{4,16})['"]?/i);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (!['STATUS', 'POSTAL', 'PASSCODE', 'NUMBER', 'ERROR', 'HTTP'].includes(candidate.toUpperCase())) {
+        return candidate.toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const handleCopyCode = (code, e) => {
+    if (e) e.stopPropagation();
+    if (!code) return;
+    try {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      showAlert(`Promo code "${code}" copied to clipboard!`, 'success');
+      setTimeout(() => setCopiedCode(null), 2500);
+    } catch (err) {
+      showAlert(`Code: ${code}`, 'info');
+    }
+  };
 
   const [kpis, setKpis] = useState({
     rating: 4.92,
@@ -45,89 +72,168 @@ const DriverDashboard = () => {
     silentRide: false
   });
 
-  const fetchDriverStatsAndRequests = async () => {
-    if (!currentUser?.id) return;
+  const getStoredAttendance = () => {
+    const driverId = currentUser?.id || 3;
     try {
-      // 1. Fetch user metrics
-      const statsRes = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`);
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setMetrics(statsData.metrics);
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const record = Array.isArray(parsed) ? parsed.find(a => String(a.user_id) === String(driverId)) : parsed;
+        if (record) return record;
       }
+    } catch (e) {
+      console.error(e);
+    }
+    return {
+      user_id: driverId,
+      is_clocked_in: 0,
+      hours_logged: 5.5,
+      monthly_hours_logged: 48.0,
+      last_clock_in: null
+    };
+  };
 
-      // 2. Fetch unassigned available bookings
-      const reqsRes = await fetch(`${API_BASE_URL}/api/bookings/unassigned/available?driverId=${currentUser.id}`);
-      if (reqsRes.ok) {
-        const reqsData = await reqsRes.json();
-        setAvailableRequests(reqsData);
+  const saveStoredAttendance = (record) => {
+    const driverId = currentUser?.id || 3;
+    try {
+      let currentArr = [];
+      const raw = localStorage.getItem('hyd_demo_attendance');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) currentArr = parsed;
+        } catch (e) {}
       }
-
-      // 3. Fetch real attendance state from database
-      const attRes = await fetch(`${API_BASE_URL}/api/driver/attendance/${currentUser.id}`);
-      if (attRes.ok) {
-        const attData = await attRes.json();
-        const clockedIn = attData.attendance.is_clocked_in === 1;
-        setIsClockedIn(clockedIn);
-        setHoursLogged(Number(attData.attendance.hours_logged));
-        setMonthlyHoursLogged(Number(attData.attendance.monthly_hours_logged || 0));
-        setLastClockIn(clockedIn && attData.attendance.last_clock_in ? new Date(attData.attendance.last_clock_in) : null);
-      }
-
-      // 4. Fetch real KPIs from database
-      const kpisRes = await fetch(`${API_BASE_URL}/api/driver/kpis/${currentUser.id}`);
-      if (kpisRes.ok) {
-        const kpisData = await kpisRes.json();
-        setKpis(kpisData);
-      }
-
-      // 5. Fetch compliance checklist documents from database
-      const docsRes = await fetch(`${API_BASE_URL}/api/driver/documents/${currentUser.id}`);
-      if (docsRes.ok) {
-        const docsData = await docsRes.json();
-        setDocuments(docsData);
-      }
-
-      // 6. Fetch recent notifications
-      const notifsRes = await fetch(`${API_BASE_URL}/api/notifications?userId=${currentUser.id}&role=driver`);
-      if (notifsRes.ok) {
-        const notifsData = await notifsRes.json();
-        setNotifications(notifsData);
-      }
-
-      // 7. Fetch driver settings
-      const settingsRes = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`);
-      if (settingsRes.ok) {
-        const settingsData = await settingsRes.json();
-        setDriverSettings({
-          dutyType: settingsData.duty_type || 'All',
-          transmission: settingsData.transmission || 'All',
-          carModel: settingsData.car_model || '',
-          silentRide: settingsData.silent_ride === 1
-        });
+      const idx = currentArr.findIndex(a => String(a.user_id) === String(driverId));
+      if (idx >= 0) {
+        currentArr[idx] = { ...currentArr[idx], ...record };
       } else {
-        // Fallback to local storage if API fails
-        const savedPrefs = localStorage.getItem(`ridePreferences_${currentUser.id}`);
-        if (savedPrefs) {
-          const parsed = JSON.parse(savedPrefs);
-          setDriverSettings({
-            dutyType: parsed.dutyType || 'All',
-            transmission: parsed.transmission || 'All',
-            carModel: parsed.carModel || '',
-            silentRide: parsed.silentRide || false
-          });
+        currentArr.push({ user_id: driverId, ...record });
+      }
+      localStorage.setItem('hyd_demo_attendance', JSON.stringify(currentArr));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchDriverStatsAndRequests = () => {
+    const driverId = currentUser?.id || 3;
+    
+    // 1. Attendance state
+    const attData = getStoredAttendance();
+    const clockedIn = (attData.is_clocked_in === 1 || attData.online === true) && Boolean(attData.last_clock_in);
+    setIsClockedIn(clockedIn);
+    setHoursLogged(Number(attData.hours_logged || attData.today_hours || 5.5));
+    setMonthlyHoursLogged(Number(attData.monthly_hours_logged || 48.0));
+    setLastClockIn(clockedIn && attData.last_clock_in ? new Date(attData.last_clock_in) : null);
+
+    // 2. Metrics & KPIs
+    // 2. Metrics & KPIs with live wallet balance
+    let currentWalletBalance = 15400.00;
+    try {
+      const wData = localStorage.getItem(`hyd_driver_wallet_data_${driverId}`);
+      if (wData) {
+        const parsedW = JSON.parse(wData);
+        if (parsedW.wallet?.balance !== undefined) {
+          currentWalletBalance = Number(parsedW.wallet.balance);
         }
       }
-    } catch (err) {
-      console.error('Error fetching driver dashboard data:', err);
-    } finally {
-      setLoading(false);
+    } catch (e) {}
+
+    setMetrics({
+      totalBookings: 142,
+      walletBalance: currentWalletBalance,
+      rewardPoints: 850,
+      activeReports: 0
+    });
+    setKpis({
+      rating: 4.92,
+      acceptance_rate: 96,
+      reliability_score: 98,
+      loyalty_tier: 'Gold Partner'
+    });
+
+    // 3. Available unassigned bookings
+    try {
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const parsed = JSON.parse(storedBookings);
+        const unassigned = parsed
+          .filter(b => b.status === 'unassigned' || b.status === 'pending' || b.status === 'request')
+          .map(b => ({
+            ...b,
+            id: b.bookingRef || b.booking_reference || `HYD-${b.id || b.dbId}`,
+            dbId: b.dbId || b.id,
+            bookingRef: b.bookingRef || b.booking_reference || `HYD-${b.id || b.dbId}`,
+            clientName: b.clientName || b.client_name || 'Client',
+            clientPhone: b.clientPhone || b.client_phone || '+91 98765 00000',
+            location: b.location || b.pickup_location || b.pickupLocation || 'Local Pickup',
+            destination: b.destination || b.dropoff_location || b.dropoffLocation || 'Local Dropoff',
+            dutyType: b.dutyType || b.duty_type || 'Inside City',
+            carModel: b.carModel || b.car_type || 'Sedan',
+            transmission: b.transmission || 'Automatic',
+            price: typeof b.price === 'string' ? b.price : (b.estimated_fare ? `₹${b.estimated_fare}` : '₹650'),
+            duration: b.duration || '2.0 hrs',
+            status: b.status
+          }));
+        setAvailableRequests(unassigned);
+      } else {
+        setAvailableRequests([
+          { id: 'HYD-9021', dbId: 101, bookingRef: 'HYD-9021', clientName: 'Ananya Rao', location: 'Hitech City, Hyderabad', destination: 'Gachibowli, Hyderabad', dutyType: 'Inside City', carModel: 'Hyundai Creta', transmission: 'Automatic', price: '₹450', duration: '2.5 hrs', date: 'Today, 4:00 PM', urgency: 'Normal', status: 'request' },
+          { id: 'HYD-9022', dbId: 102, bookingRef: 'HYD-9022', clientName: 'Karan Sharma', location: 'Banjara Hills, Hyderabad', destination: 'Vijayawada Highway', dutyType: 'Outstation', carModel: 'Toyota Innova Crysta', transmission: 'Manual', price: '₹2,800', duration: '1 Day', date: 'Tomorrow, 6:00 AM', urgency: 'High', status: 'request' },
+          { id: 'HYD-9023', dbId: 103, bookingRef: 'HYD-9023', clientName: 'Siddharth Varma', location: 'Jubilee Hills, Hyderabad', destination: 'RGIA Airport', dutyType: 'One Way', carModel: 'Honda City', transmission: 'Automatic', price: '₹650', duration: '1.5 hrs', date: 'Today, 8:30 PM', urgency: 'Urgent', status: 'request' }
+        ]);
+      }
+    } catch (e) {
+      setAvailableRequests([]);
     }
+
+    // 4. Documents & Notifications
+    setDocuments([
+      { id: 1, document_type: 'Driving License (Front & Back)', status: 'approved' },
+      { id: 2, document_type: 'Aadhaar Card Verification', status: 'approved' },
+      { id: 3, document_type: 'Police Background Verification', status: 'approved' }
+    ]);
+    const defaultDriverNotifications = [
+      { id: 201, role: 'driver', title: 'Duty Status Offline', message: 'You are currently Off Duty. Toggle On Duty to start receiving client trip requests.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 8).toISOString() },
+      { id: 202, role: 'driver', title: 'New Trip Assignment', message: 'New Outstation ride #HYD-8492 available: Indiranagar to Airport ($850.00 fare).', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 25).toISOString() },
+      { id: 203, role: 'driver', title: 'Weekly Incentive Earned', message: 'Completed 10 rides this week! $50.00 performance bonus added to earnings.', is_read: 0, created_at: new Date(Date.now() - 1000 * 60 * 90).toISOString() },
+      { id: 204, role: 'driver', title: 'Bank Payout Processed', message: 'Your cashout transfer of $2,000.00 to HDFC Bank (•••• 4821) has completed.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 210).toISOString() },
+      { id: 205, role: 'driver', title: 'Documents Verified', message: 'Commercial Driver License (DL-042019984321) successfully approved by Admin.', is_read: 1, created_at: new Date(Date.now() - 1000 * 60 * 420).toISOString() }
+    ];
+
+    try {
+      const stored = localStorage.getItem('hyd_demo_notifications_driver');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setNotifications(Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultDriverNotifications);
+      } else {
+        setNotifications(defaultDriverNotifications);
+      }
+    } catch (e) {
+      setNotifications(defaultDriverNotifications);
+    }
+
+    // 5. Settings
+    const savedPrefs = localStorage.getItem(`ridePreferences_${currentUser?.id || 3}`);
+    if (savedPrefs) {
+      try {
+        const parsed = JSON.parse(savedPrefs);
+        setDriverSettings({
+          dutyType: parsed.dutyType || 'All',
+          transmission: parsed.transmission || 'All',
+          carModel: parsed.carModel || '',
+          silentRide: parsed.silentRide || false
+        });
+      } catch (e) {}
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
     fetchDriverStatsAndRequests();
 
-    // Listen for storage events to update clock state if changed in Attendance page
     const handleStorage = () => {
       fetchDriverStatsAndRequests();
     };
@@ -170,75 +276,146 @@ const DriverDashboard = () => {
     return parts.join(' ');
   };
 
-  const handleClockToggle = async () => {
-    if (!currentUser?.id) return;
-    
+  // Push a duty-status notification into the shared driver notification store
+  const pushDutyNotification = (isGoingOnline, durationStr) => {
+    const notifKey = 'hyd_demo_notifications_driver';
+    const clearedKey = 'hyd_notif_cleared_driver';
     try {
-      const res = await fetch(`${API_BASE_URL}/api/driver/attendance/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const nowClockedIn = data.attendance.is_clocked_in === 1;
-        setIsClockedIn(nowClockedIn);
-        setHoursLogged(Number(data.attendance.hours_logged));
-        setMonthlyHoursLogged(Number(data.attendance.monthly_hours_logged || 0));
-        setLastClockIn(nowClockedIn && data.attendance.last_clock_in ? new Date(data.attendance.last_clock_in) : null);
-        
-        if (data.attendance.is_clocked_in === 0) {
-          showAlert(`Clocked Out successfully! Added ${formatDurationFriendly(data.addedHours)}.`, "success");
-        } else {
-          showAlert("Clocked In successfully! You are now Online.", "success");
-        }
-        
-        // Dispatch storage event so other components update instantly
+      const raw = localStorage.getItem(notifKey);
+      const existing = raw ? JSON.parse(raw) : [];
+      const arr = Array.isArray(existing) ? existing : [];
+      const newNotif = isGoingOnline
+        ? {
+            id: Date.now(),
+            role: 'driver',
+            title: 'You are On Duty',
+            message: `You clocked in at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Ride dispatch is now active — you are visible to nearby clients.`,
+            is_read: 0,
+            created_at: new Date().toISOString(),
+            type: 'success'
+          }
+        : {
+            id: Date.now(),
+            role: 'driver',
+            title: 'You are Off Duty',
+            message: `You clocked out at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${durationStr ? `. Session duration: ${durationStr}` : ''}. Ride dispatch paused.`,
+            is_read: 0,
+            created_at: new Date().toISOString(),
+            type: 'warning'
+          };
+      // Persist to localStorage
+      localStorage.setItem(clearedKey, '0');
+      localStorage.setItem(notifKey, JSON.stringify([newNotif, ...arr]));
+      // Directly inject into DashboardLayout's bell panel via custom event (avoids localStorage read timing issues)
+      window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: newNotif }));
+    } catch (e) {}
+  };
+
+  const handleClockToggle = () => {
+    const now = new Date();
+    const attData = getStoredAttendance();
+    const currentlyOn = isClockedIn;
+
+    if (!currentlyOn) {
+      // Toggle ON
+      const updated = {
+        is_clocked_in: 1,
+        online: true,
+        hours_logged: hoursLogged,
+        monthly_hours_logged: monthlyHoursLogged,
+        last_clock_in: now.toISOString()
+      };
+      saveStoredAttendance(updated);
+      setIsClockedIn(true);
+      setLastClockIn(now);
+      pushDutyNotification(true, null);
+      showAlert("Clocked In successfully! You are now On Duty.", "success");
+    } else {
+      // Toggle OFF
+      const addedHours = lastClockIn ? Math.max(0, (now.getTime() - lastClockIn.getTime()) / (1000 * 60 * 60)) : 0;
+      const newHours = hoursLogged + addedHours;
+      const newMonthly = monthlyHoursLogged + addedHours;
+      const updated = {
+        is_clocked_in: 0,
+        online: false,
+        hours_logged: newHours,
+        monthly_hours_logged: newMonthly,
+        last_clock_in: null
+      };
+      saveStoredAttendance(updated);
+      setIsClockedIn(false);
+      setHoursLogged(newHours);
+      setMonthlyHoursLogged(newMonthly);
+      setLastClockIn(null);
+      pushDutyNotification(false, formatDurationFriendly(addedHours));
+      showAlert(`Clocked Out successfully! Added ${formatDurationFriendly(addedHours)}.`, "success");
+    }
+
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new CustomEvent('hyd:duty-change', { detail: { is_clocked_in: currentlyOn ? 0 : 1 } }));
+  };
+
+  const handleAcceptJob = (dbId, bookingRef) => {
+    if (!isClockedIn) {
+      showAlert("You must be On Duty to accept rides! Please toggle duty status first.", "error");
+      return;
+    }
+
+    try {
+      const storedBookings = localStorage.getItem('hyd_demo_bookings');
+      if (storedBookings) {
+        const list = JSON.parse(storedBookings);
+        const updated = list.map(b => {
+          const matchDb = String(b.dbId) === String(dbId) || String(b.id) === String(dbId);
+          const matchRef = (b.booking_reference && b.booking_reference === bookingRef) || (b.bookingRef && b.bookingRef === bookingRef);
+          if (matchDb || matchRef) {
+            return {
+              ...b,
+              status: 'upcoming',
+              driver_id: currentUser?.id || 3,
+              driver_name: currentUser?.name || 'Rajesh Kumar',
+              driver_phone: currentUser?.phone || '+91 98765 43212',
+              driver_rating: 4.85,
+              driver_photo: currentUser?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+              accepted_at: new Date().toISOString()
+            };
+          }
+          return b;
+        });
+        localStorage.setItem('hyd_demo_bookings', JSON.stringify(updated));
+
+        // Send confirmation notification to client
+        const clientNotifKey = 'hyd_demo_notifications_client';
+        const rawC = localStorage.getItem(clientNotifKey);
+        const cList = rawC ? JSON.parse(rawC) : [];
+        const clientAlert = {
+          id: Date.now(),
+          role: 'client',
+          title: 'Chauffeur Assigned!',
+          message: `Chauffeur ${currentUser?.name || 'Rajesh Kumar'} accepted booking #${bookingRef || dbId}. They are arriving at your pickup location. Please share your 4-digit start OTP.`,
+          is_read: 0,
+          created_at: new Date().toISOString(),
+          type: 'success'
+        };
+        localStorage.setItem(clientNotifKey, JSON.stringify([clientAlert, ...(Array.isArray(cList) ? cList : [])]));
+
         window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('hyd:new-notification', { detail: clientAlert }));
       }
-    } catch (err) {
-      console.error('Toggle clock state error:', err);
-      showAlert("Error toggling duty status", "error");
+    } catch (e) {
+      console.error('Error accepting job in DriverDashboard:', e);
     }
+
+    setAvailableRequests(prev => prev.filter(r => String(r.dbId) !== String(dbId) && String(r.id) !== String(dbId)));
+    showAlert(`Successfully accepted booking ${bookingRef}! Head to Assigned Rides to navigate and start trip with OTP.`, "success");
   };
 
-  const handleAcceptJob = async (dbId, bookingRef) => {
-    const driverName = `${currentUser.firstName} ${currentUser.lastName || ''}`.trim();
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/bookings/${dbId}/accept`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driverName, driverId: currentUser.id })
-      });
-      if (res.ok) {
-        showAlert(`Successfully accepted booking ${bookingRef}!`, "success");
-        fetchDriverStatsAndRequests();
-      } else {
-        const data = await res.json();
-        showAlert(data.error || "Failed to accept booking", "error");
-      }
-    } catch (error) {
-      console.error('Error accepting booking:', error);
-      showAlert("Error accepting booking", "error");
-    }
-  };
-
-  const triggerSOS = async () => {
+  const triggerSOS = () => {
     setSosLoading(true);
     showAlert("SOS SIGNAL SENT! Sharing location with local emergency responders...", "error");
-    try {
-      await fetch(`${API_BASE_URL}/api/sos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUser.id })
-      });
-      setTimeout(() => {
-        setSosLoading(false);
-      }, 3000);
-    } catch (err) {
-      console.error(err);
+    setTimeout(() => {
       setSosLoading(false);
-    }
+    }, 2000);
   };
 
   // Filter bookings based on driver settings
@@ -450,18 +627,24 @@ const DriverDashboard = () => {
           {loading ? (
             <p style={{ color: 'var(--text-muted)' }}>Updating jobs feed...</p>
           ) : !isClockedIn ? (
-            <div className="empty-state offline-state" style={{ padding: '60px 20px', textAlign: 'center', background: 'var(--bg-card)', border: '1px dashed var(--border-color)', borderRadius: '16px' }}>
-              <Clock size={48} color="var(--accent-gold)" style={{ opacity: 0.8, marginBottom: '16px', margin: '0 auto' }} />
-              <h3 style={{ color: 'var(--text-main)', marginTop: '8px' }}>You are currently Offline</h3>
-              <p style={{ maxWidth: '400px', margin: '8px auto 24px auto', color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.5' }}>
-                You must go online (clock in) to view and receive new booking requests from clients.
+            <div className="empty-state offline-state">
+              <div className="offline-icon-wrapper">
+                <Clock size={36} color="var(--accent-gold)" />
+              </div>
+              <h3 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '8px', color: 'var(--text-main)' }}>
+                You are currently Offline
+              </h3>
+              <p style={{ maxWidth: '420px', margin: '0 auto 28px', color: 'var(--text-muted)', fontSize: '14px', lineHeight: '1.6' }}>
+                You must go online (clock in) to view and receive real-time booking requests from clients.
               </p>
               <button 
                 onClick={handleClockToggle} 
-                className="action-btn accept-btn"
-                style={{ width: 'auto', padding: '12px 32px', margin: '0 auto', background: 'var(--accent-gold)', color: '#000', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                className="go-online-btn"
+                title="Click to go on duty and start receiving client trip requests"
               >
-                <Play size={14} fill="#000" /> Go Online
+                <span className="go-online-pulse-dot" />
+                <Play size={16} fill="#000" />
+                <span>Go Online (Start Duty)</span>
               </button>
             </div>
           ) : (showAllJobs ? availableRequests : filteredRequests).length === 0 ? (
@@ -588,18 +771,17 @@ const DriverDashboard = () => {
                       fontSize: '12px',
                       cursor: 'pointer'
                     }}
-                    onClick={async () => {
+                    onClick={() => {
                       setSelectedNotification(notif);
                       if (!notif.is_read) {
-                        try {
-                          const res = await fetch(`${API_BASE_URL}/api/notifications/${notif.id}/read`, { method: 'PATCH' });
-                          if (res.ok) {
-                            setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: 1 } : n));
-                            window.dispatchEvent(new Event('storage'));
-                          }
-                        } catch (err) {
-                          console.error(err);
-                        }
+                        setNotifications(prev => {
+                          const updated = prev.map(n => n.id === notif.id ? { ...n, is_read: 1 } : n);
+                          try {
+                            localStorage.setItem('hyd_demo_notifications_driver', JSON.stringify(updated));
+                          } catch (e) {}
+                          return updated;
+                        });
+                        window.dispatchEvent(new Event('storage'));
                       }
                     }}
                   >
@@ -610,6 +792,61 @@ const DriverDashboard = () => {
                       </span>
                     </div>
                     <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: '1.3' }}>{notif.message}</p>
+                    {(() => {
+                      const itemPromo = extractPromoCode(notif);
+                      if (!itemPromo) return null;
+                      const isCopied = copiedCode === itemPromo;
+                      return (
+                        <div 
+                          onClick={(e) => e.stopPropagation()} 
+                          style={{
+                            marginTop: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: 'rgba(212, 175, 55, 0.08)',
+                            border: '1px dashed rgba(212, 175, 55, 0.4)',
+                            borderRadius: '8px',
+                            padding: '4px 8px'
+                          }}
+                        >
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            color: 'var(--accent-gold)',
+                            fontFamily: 'monospace',
+                            letterSpacing: '0.5px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <Ticket size={12} /> {itemPromo}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyCode(itemPromo, e)}
+                            style={{
+                              background: isCopied ? '#22c55e' : 'var(--accent-gold)',
+                              color: isCopied ? '#ffffff' : '#000000',
+                              border: 'none',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                              fontSize: '10px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Copy Promo Code"
+                          >
+                            {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                            {isCopied ? 'Copied' : 'Copy Code'}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))
               )}
@@ -722,8 +959,8 @@ const DriverDashboard = () => {
 
       {/* Notification Preview Modal */}
       {selectedNotification && createPortal(
-        <div className="safety-modal-overlay">
-          <div className="safety-modal-content" style={{ maxWidth: '450px', padding: '28px' }}>
+        <div className="safety-modal-overlay" onClick={() => setSelectedNotification(null)}>
+          <div className="safety-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '450px', padding: '28px' }}>
             <div className="safety-modal-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '14px', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--accent-gold)' }}>
                 {selectedNotification.title}
@@ -737,6 +974,70 @@ const DriverDashboard = () => {
               <p style={{ fontSize: '15px', color: 'var(--text-main)', lineHeight: '1.6', margin: 0 }}>
                 {selectedNotification.message}
               </p>
+              {(() => {
+                const modalPromo = extractPromoCode(selectedNotification);
+                if (!modalPromo) return null;
+                const isCopied = copiedCode === modalPromo;
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(0, 0, 0, 0.35))',
+                    border: '1px dashed var(--accent-gold)',
+                    borderRadius: '14px',
+                    padding: '14px 16px',
+                    margin: '16px 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '12px',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.25)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '10px',
+                        background: 'rgba(212, 175, 55, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--accent-gold)'
+                      }}>
+                        <Ticket size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                          Promotional Discount Code
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--accent-gold)', letterSpacing: '1px', fontFamily: 'monospace' }}>
+                          {modalPromo}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyCode(modalPromo, e)}
+                      style={{
+                        background: isCopied ? '#22c55e' : 'var(--accent-gold)',
+                        color: isCopied ? '#ffffff' : '#000000',
+                        border: 'none',
+                        padding: '9px 16px',
+                        borderRadius: '10px',
+                        fontSize: '12.5px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 4px 12px rgba(212, 175, 55, 0.2)'
+                      }}
+                    >
+                      {isCopied ? <Check size={15} /> : <Copy size={15} />}
+                      {isCopied ? 'Copied!' : 'Copy Code'}
+                    </button>
+                  </div>
+                );
+              })()}
               <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
                 <span>Recipient: Driver</span>
                 <span>

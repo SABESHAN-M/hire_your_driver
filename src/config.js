@@ -1,3 +1,1 @@
-export const API_BASE_URL = import.meta.env.PROD
-  ? ''
-  : `http://${window.location.hostname}:5000`;
+export const API_BASE_URL = '';

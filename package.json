@@ -1,27 +1,18 @@
 {
   "name": "online_driver_hiring",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server/index.js\"",
+    "dev": "vite --host",
+    "tunnel": ".\\cloudflared.exe tunnel --url http://localhost:5173",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "server": "node server/index.js",
-    "setup:supabase": "node server/setup_supabase.js"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
-    "bcryptjs": "^3.0.3",
-    "concurrently": "^10.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.18.0",
-    "mysql2": "^3.22.5",
-    "pg": "^8.22.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-leaflet": "^5.0.0",

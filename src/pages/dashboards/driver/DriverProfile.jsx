@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { User, Mail, Phone, Calendar, CreditCard, Award, ShieldCheck, Save, X, Camera, Upload, RotateCcw } from 'lucide-react';
 import './DriverProfile.css';
 
@@ -64,57 +63,28 @@ const DriverProfile = () => {
     }
   }, [currentUser]);
 
-  const fetchProfile = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`);
-      if (!res.ok) throw new Error('Failed to fetch profile data');
-      const data = await res.json();
-      
-      setProfileData(data.user);
-      setMetrics(data.metrics);
-      setFormData({
-        firstName: data.user.firstName || '',
-        lastName: data.user.lastName || '',
-        email: data.user.email || ''
-      });
+  const fetchProfile = () => {
+    const userObj = currentUser || {
+      id: 3,
+      firstName: 'Rajesh',
+      lastName: 'Kumar',
+      email: 'driver@hireyourdriver.com',
+      phone_number: '9876512345',
+      role: 'driver'
+    };
 
-      // Synchronize avatar from database
-      if (data.user.profilePhoto) {
-        let parsedAvatar = null;
-        if (data.user.profilePhoto.startsWith('{') && data.user.profilePhoto.endsWith('}')) {
-          try {
-            parsedAvatar = JSON.parse(data.user.profilePhoto);
-          } catch (e) {
-            console.error('Failed to parse profile photo JSON:', e);
-          }
-        }
-        
-        if (parsedAvatar && (parsedAvatar.type || parsedAvatar.url || parsedAvatar.color)) {
-          const type = parsedAvatar.type || 'initials';
-          const url = parsedAvatar.url || '';
-          const color = parsedAvatar.color || 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)';
-          
-          localStorage.setItem(`avatarType_${currentUser.id}`, type);
-          localStorage.setItem(`avatarUrl_${currentUser.id}`, url);
-          localStorage.setItem(`avatarColor_${currentUser.id}`, color);
-          setAvatarStyle({ type, url, color });
-        } else {
-          // Fallback if database photo is a raw URL or base64 string
-          localStorage.setItem(`avatarType_${currentUser.id}`, 'url');
-          localStorage.setItem(`avatarUrl_${currentUser.id}`, data.user.profilePhoto);
-          localStorage.setItem(`avatarColor_${currentUser.id}`, 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)');
-          setAvatarStyle({
-            type: 'url',
-            url: data.user.profilePhoto,
-            color: 'linear-gradient(135deg, #d4af37 0%, #b5952f 100%)'
-          });
-        }
-        window.dispatchEvent(new Event('storage'));
-      }
-    } catch (err) {
-      console.error(err);
-      showAlert('Error loading profile details', 'error');
-    }
+    setProfileData(userObj);
+    setMetrics({
+      totalBookings: 142,
+      walletBalance: 15400.00,
+      rewardPoints: 850,
+      activeReports: 0
+    });
+    setFormData({
+      firstName: userObj.firstName || userObj.first_name || 'Rajesh',
+      lastName: userObj.lastName || userObj.last_name || 'Kumar',
+      email: userObj.email || 'driver@hireyourdriver.com'
+    });
   };
 
   const handleInputChange = (e) => {
@@ -125,61 +95,34 @@ const DriverProfile = () => {
     }));
   };
 
-  const handleSave = async (e) => {
+  const handleSave = (e) => {
     e.preventDefault();
     if (!formData.firstName.trim()) {
       return showAlert('First name is required', 'error');
     }
     
     setIsSaving(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
-          email: formData.email.trim()
-        })
-      });
+    const updated = {
+      ...currentUser,
+      firstName: formData.firstName.trim(),
+      first_name: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      last_name: formData.lastName.trim(),
+      email: formData.email.trim()
+    };
+    if (login) login(updated);
 
-      if (!res.ok) throw new Error('Failed to update profile');
-      
-      login({
-        ...currentUser,
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        email: formData.email.trim()
-      });
-
-      await fetchProfile();
-      setIsEditing(false);
-      showAlert('Profile updated successfully!', 'success');
-    } catch (err) {
-      console.error(err);
-      showAlert('Failed to update profile', 'error');
-    } finally {
-      setIsSaving(false);
-    }
+    setIsEditing(false);
+    setIsSaving(false);
+    showAlert('Profile updated successfully!', 'success');
   };
 
-  const saveAvatarToDb = async (newStyle) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          profilePhoto: JSON.stringify(newStyle)
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save avatar to database');
-    } catch (err) {
-      console.error('Error saving avatar to database:', err);
-    }
+  const saveAvatarToDb = (newStyle) => {
+    const driverId = currentUser?.id || 3;
+    localStorage.setItem(`avatarType_${driverId}`, newStyle.type || 'initials');
+    localStorage.setItem(`avatarUrl_${driverId}`, newStyle.url || '');
+    localStorage.setItem(`avatarColor_${driverId}`, newStyle.color || '');
+    window.dispatchEvent(new Event('storage'));
   };
 
   // Preset Select handler

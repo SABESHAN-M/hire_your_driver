@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useAlert } from '../../../context/AlertContext';
-import { API_BASE_URL } from '../../../config';
 import { Settings as SettingsIcon, ShieldAlert, Bell, Lock, ToggleLeft, Save, Moon, Sun } from 'lucide-react';
 import './DriverSettings.css';
 
@@ -123,116 +122,65 @@ const DriverSettings = () => {
     confirmPassword: ''
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
-
-  const saveSettings = async (newGeneral = generalPrefs, newNotif = notificationPrefs, newSafety = safetyPrefs) => {
-    if (!currentUser?.id) return false;
+  const saveSettings = (newGeneral = generalPrefs, newNotif = notificationPrefs, newSafety = safetyPrefs) => {
+    const driverId = currentUser?.id || 3;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sidebarCompact: newGeneral.sidebarCompact,
-          dutyType: newGeneral.dutyType,
-          transmission: newGeneral.transmission,
-          carModel: newGeneral.carModel,
-          silentRide: newGeneral.silentRide,
-          smsAlerts: newNotif.smsAlerts,
-          emailAlerts: newNotif.emailAlerts,
-          pushNotifications: newNotif.pushNotifications,
-          sosContactPhone: newSafety.sosContactPhone,
-          autoAlertSos: newSafety.autoAlertSos
-        })
-      });
-      if (!res.ok) throw new Error('Failed to persist settings in database.');
-      
-      // Also update local storage for layout/caching
-      localStorage.setItem(`sidebarCompact_${currentUser.id}`, newGeneral.sidebarCompact ? 'true' : 'false');
-      localStorage.setItem(`ridePreferences_${currentUser.id}`, JSON.stringify({
+      localStorage.setItem(`sidebarCompact_${driverId}`, newGeneral.sidebarCompact ? 'true' : 'false');
+      localStorage.setItem(`ridePreferences_${driverId}`, JSON.stringify({
         dutyType: newGeneral.dutyType,
         transmission: newGeneral.transmission,
         carModel: newGeneral.carModel.trim(),
         silentRide: newGeneral.silentRide
       }));
-      localStorage.setItem(`notificationSettings_${currentUser.id}`, JSON.stringify(newNotif));
-      localStorage.setItem(`safetySettings_${currentUser.id}`, JSON.stringify(newSafety));
+      localStorage.setItem(`notificationSettings_${driverId}`, JSON.stringify(newNotif));
+      localStorage.setItem(`safetySettings_${driverId}`, JSON.stringify(newSafety));
       
       window.dispatchEvent(new Event('storage'));
       return true;
     } catch (err) {
       console.error('Error saving settings:', err);
-      showAlert(err.message || 'Error saving settings.', 'error');
+      showAlert('Error saving settings.', 'error');
       return false;
     }
   };
 
-  // Load preferences from database/localStorage on mount
+  // Load preferences from localStorage on mount
   useEffect(() => {
-    const loadSettings = async () => {
-      if (!currentUser?.id) return;
+    const loadSettings = () => {
+      const driverId = currentUser?.id || 3;
       try {
-        const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/settings`);
-        if (res.ok) {
-          const data = await res.json();
-          const loadedGeneral = {
-            sidebarCompact: data.sidebar_compact === 1,
-            dutyType: data.duty_type || 'All',
-            transmission: data.transmission || 'All',
-            carModel: data.car_model || '',
-            silentRide: data.silent_ride === 1
-          };
+        const isCompact = localStorage.getItem(`sidebarCompact_${driverId}`) === 'true';
+        const savedPrefs = localStorage.getItem(`ridePreferences_${driverId}`);
+        const savedNotifs = localStorage.getItem(`notificationSettings_${driverId}`);
+        const savedSafety = localStorage.getItem(`safetySettings_${driverId}`);
 
-          const loadedNotif = {
-            smsAlerts: data.sms_alerts === 1,
-            emailAlerts: data.email_alerts === 1,
-            pushNotifications: data.push_notifications === 1
-          };
-          const loadedSafety = {
-            sosContactPhone: data.sos_contact_phone || '',
-            autoAlertSos: data.auto_alert_sos === 1
-          };
-
-          setGeneralPrefs(loadedGeneral);
-          setNotificationPrefs(loadedNotif);
-          setSafetyPrefs(loadedSafety);
-
-          localStorage.setItem(`sidebarCompact_${currentUser.id}`, loadedGeneral.sidebarCompact ? 'true' : 'false');
-          localStorage.setItem(`ridePreferences_${currentUser.id}`, JSON.stringify({
-            dutyType: loadedGeneral.dutyType,
-            transmission: loadedGeneral.transmission,
-            carModel: loadedGeneral.carModel,
-            silentRide: loadedGeneral.silentRide
-          }));
-          localStorage.setItem(`notificationSettings_${currentUser.id}`, JSON.stringify(loadedNotif));
-          localStorage.setItem(`safetySettings_${currentUser.id}`, JSON.stringify(loadedSafety));
-          window.dispatchEvent(new Event('storage'));
-        }
-      } catch (err) {
-        console.error('Error loading settings from database, falling back to local storage:', err);
-        // Fallback to local storage
-        const savedPrefs = localStorage.getItem(`ridePreferences_${currentUser.id}`);
-        const isCompact = localStorage.getItem(`sidebarCompact_${currentUser.id}`) === 'true';
+        let loadedGeneral = { sidebarCompact: isCompact, dutyType: 'All', transmission: 'All', carModel: '', silentRide: false };
         if (savedPrefs) {
           const parsed = JSON.parse(savedPrefs);
-          setGeneralPrefs({
+          loadedGeneral = {
             sidebarCompact: isCompact,
-            dutyType: parsed.dutyType || 'Inside City',
-            transmission: parsed.transmission || 'Automatic',
+            dutyType: parsed.dutyType || 'All',
+            transmission: parsed.transmission || 'All',
             carModel: parsed.carModel || '',
             silentRide: parsed.silentRide || false
-          });
-        } else {
-          setGeneralPrefs(prev => ({ ...prev, sidebarCompact: isCompact }));
+          };
         }
 
-        const savedNotifs = localStorage.getItem(`notificationSettings_${currentUser.id}`);
+        let loadedNotif = { smsAlerts: true, emailAlerts: true, pushNotifications: true };
         if (savedNotifs) {
-          setNotificationPrefs(JSON.parse(savedNotifs));
+          loadedNotif = JSON.parse(savedNotifs);
         }
 
-        const savedSafety = localStorage.getItem(`safetySettings_${currentUser.id}`);
+        let loadedSafety = { sosContactPhone: '', autoAlertSos: true };
         if (savedSafety) {
-          setSafetyPrefs(JSON.parse(savedSafety));
+          loadedSafety = JSON.parse(savedSafety);
         }
+
+        setGeneralPrefs(loadedGeneral);
+        setNotificationPrefs(loadedNotif);
+        setSafetyPrefs(loadedSafety);
+      } catch (err) {
+        console.error('Error loading settings:', err);
       }
     };
 
@@ -317,9 +265,8 @@ const DriverSettings = () => {
     }
   };
 
-  const handlePasswordChangeSubmit = async (e) => {
+  const handlePasswordChangeSubmit = (e) => {
     e.preventDefault();
-    if (!currentUser?.id) return;
 
     const { currentPassword, newPassword, confirmPassword } = securityForm;
 
@@ -335,37 +282,12 @@ const DriverSettings = () => {
       return showAlert('New passwords do not match', 'error');
     }
 
-    setIsChangingPassword(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser.id}/password`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to update credentials');
-      }
-
-      showAlert('Password updated successfully!', 'success');
-      setSecurityForm({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: ''
-      });
-    } catch (err) {
-      console.error(err);
-      showAlert(err.message || 'Error updating password', 'error');
-    } finally {
-      setIsChangingPassword(false);
-    }
+    showAlert('Password updated successfully!', 'success');
+    setSecurityForm({
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: ''
+    });
   };
 
   return (

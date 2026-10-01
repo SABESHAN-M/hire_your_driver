@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Search, Shield, Car, User } from 'lucide-react';
-import { API_BASE_URL } from '../../../config';
 import './AdminPages.css';
 
 const AdminUsers = () => {
@@ -8,14 +7,34 @@ const AdminUsers = () => {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
+  const defaultUsersList = [
+    { id: 1, first_name: 'System', last_name: 'Admin', role: 'admin', email: 'admin@hireyourdriver.com', phone_number: '9876543210', status: 'active', created_at: new Date().toISOString() },
+    { id: 2, first_name: 'Rahul', last_name: 'Sharma', role: 'client', email: 'rahul@gmail.com', phone_number: '9876543211', status: 'active', created_at: new Date().toISOString() },
+    { id: 3, first_name: 'Rajesh', last_name: 'Kumar', role: 'driver', email: 'rajesh@gmail.com', phone_number: '9876543212', status: 'active', created_at: new Date().toISOString() },
+    { id: 4, first_name: 'Suresh', last_name: 'Verma', role: 'driver', email: 'suresh@gmail.com', phone_number: '9876543213', status: 'active', created_at: new Date().toISOString() }
+  ];
+
+  const loadUsers = () => {
+    try {
+      const stored = localStorage.getItem('hyd_demo_users');
+      const parsed = stored ? JSON.parse(stored) : [];
+      if (Array.isArray(parsed)) {
+        const userMap = new Map();
+        defaultUsersList.forEach(u => userMap.set(u.email || u.id, u));
+        parsed.forEach(u => userMap.set(u.email || u.id, { ...userMap.get(u.email || u.id), ...u }));
+        setUsers(Array.from(userMap.values()));
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setUsers(defaultUsersList);
+  };
+
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/admin/users`);
-        if (res.ok) setUsers(await res.json());
-      } catch (err) { console.error(err); }
-    };
-    fetchUsers();
+    loadUsers();
+    window.addEventListener('storage', loadUsers);
+    return () => window.removeEventListener('storage', loadUsers);
   }, []);
 
   const filtered = users.filter(u => {
